@@ -136,6 +136,95 @@
   WM.downloadCSV = downloadCSV;
 
   /* ------------------------------------------------------------------ *
+   * Toasts (blueprint: success 4s, errors stay until dismissed, ARIA)   *
+   * ------------------------------------------------------------------ */
+  function toastRegion() {
+    let region = document.getElementById('toast-region');
+    if (!region) {
+      region = document.createElement('div');
+      region.id = 'toast-region';
+      region.className = 'toast-region';
+      region.setAttribute('role', 'status');
+      region.setAttribute('aria-live', 'polite');
+      document.body.appendChild(region);
+    }
+    return region;
+  }
+
+  function toast(message, type) {
+    const region = toastRegion();
+    const el = document.createElement('div');
+    el.className = 'toast toast-' + (type || 'success');
+    el.innerHTML = ic(type === 'error' ? 'alert-circle' : (type === 'warning' ? 'alert-triangle' : 'check-circle-2'), 16)
+      + '<span>' + esc(message) + '</span>'
+      + '<button type="button" class="toast-close" aria-label="Dismiss">' + ic('x', 14) + '</button>';
+    region.appendChild(el);
+    refreshIcons();
+    const remove = function () {
+      el.classList.add('toast-leave');
+      window.setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 180);
+    };
+    el.querySelector('.toast-close').addEventListener('click', remove);
+    if ((type || 'success') !== 'error') window.setTimeout(remove, 4000);
+    return remove;
+  }
+  WM.toast = toast;
+
+  /* ------------------------------------------------------------------ *
+   * Theme (blueprint: dark mode selectable, same tokens remapped)       *
+   * ------------------------------------------------------------------ */
+  const THEME_KEY = 'waymark_theme';
+  const theme = {
+    get() {
+      try { return localStorage.getItem(THEME_KEY) || 'light'; } catch (e) { return 'light'; }
+    },
+    set(value) {
+      const v = value === 'dark' ? 'dark' : 'light';
+      try { localStorage.setItem(THEME_KEY, v); } catch (e) { /* noop */ }
+      document.documentElement.setAttribute('data-theme', v);
+      return v;
+    },
+    toggle() { return this.set(this.get() === 'dark' ? 'light' : 'dark'); },
+  };
+  theme.set(theme.get());
+  WM.theme = theme;
+
+  /* ------------------------------------------------------------------ *
+   * Status chips (blueprint state colors)                               *
+   * ------------------------------------------------------------------ */
+  const STATUS_TONES = {
+    'draft': 'slate',
+    'pending': 'amber',
+    'pending approval': 'amber',
+    'pending review': 'amber',
+    'changes requested': 'amber',
+    'published': 'blue',
+    'published, not yet open': 'blue',
+    'registration open': 'blue',
+    'approved': 'blue',
+    'ongoing': 'green',
+    'completed': 'slate',
+    'cancelled': 'red',
+    'rejected': 'red',
+    'withdrawn': 'red',
+    'registered': 'green',
+    'confirmed': 'green',
+    'waitlisted': 'amber',
+    'offered': 'amber',
+    'valid': 'green',
+    'checked in': 'green',
+    'exception': 'red',
+    'verified': 'green',
+    'overridden': 'amber',
+  };
+
+  function statusChip(status) {
+    const tone = STATUS_TONES[String(status || '').toLowerCase()] || 'slate';
+    return badge(status, tone);
+  }
+  WM.statusChip = statusChip;
+
+  /* ------------------------------------------------------------------ *
    * UI components (ports components/ui.tsx)                             *
    * ------------------------------------------------------------------ */
   function badge(children, tone) {
@@ -222,15 +311,15 @@
     const pathD = points.map((p, i) => (i === 0 ? 'M' : 'L') + ' ' + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
     const areaD = pathD + ' L ' + points[points.length - 1].x.toFixed(1) + ' ' + (h - padY)
       + ' L ' + points[0].x.toFixed(1) + ' ' + (h - padY) + ' Z';
-    const circles = points.map((p) => '<circle cx="' + p.x + '" cy="' + p.y + '" r="4" fill="#fff" stroke="#2f7a5e" stroke-width="2" />').join('');
+    const circles = points.map((p) => '<circle cx="' + p.x + '" cy="' + p.y + '" r="4" fill="var(--wm-surface)" stroke="var(--wm-primary)" stroke-width="2" />').join('');
     const labels = data.map((d) => '<span>' + esc(d.label) + '</span>').join('');
     return '<div class="chart-line-wrap"><svg class="chart-line-svg" viewBox="0 0 ' + w + ' ' + h
       + '" preserveAspectRatio="none" style="width:100%;height:' + height + 'px">'
       + '<defs><linearGradient id="lineGradient" x1="0" y1="0" x2="0" y2="1">'
-      + '<stop offset="0%" stop-color="#3a8d72" stop-opacity="0.22" />'
-      + '<stop offset="100%" stop-color="#3a8d72" stop-opacity="0" /></linearGradient></defs>'
+      + '<stop offset="0%" stop-color="var(--wm-primary)" stop-opacity="0.22" />'
+      + '<stop offset="100%" stop-color="var(--wm-primary)" stop-opacity="0" /></linearGradient></defs>'
       + '<path d="' + areaD + '" fill="url(#lineGradient)" />'
-      + '<path d="' + pathD + '" fill="none" stroke="#2f7a5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />'
+      + '<path d="' + pathD + '" fill="none" stroke="var(--wm-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />'
       + circles + '</svg><div class="chart-line-labels">' + labels + '</div></div>';
   }
 
@@ -398,15 +487,29 @@
         { label: 'Overview', icon: 'layout-dashboard', path: '/', href: 'index.html', roles: ['participant', 'host', 'jury', 'admin'] },
         { label: 'Discover events', icon: 'calendar-days', path: '/discover', href: 'discover.html', roles: ['participant', 'host', 'admin'] },
         { label: 'My registrations', icon: 'ticket-check', path: '/registrations', href: 'registrations.html', roles: ['participant'] },
+        { label: 'My certificates', icon: 'award', path: '/my-certificates', href: 'my-certificates.html', roles: ['participant'] },
+        { label: 'History', icon: 'history', path: '/history', href: 'history.html', roles: ['participant'] },
         { label: 'My events', icon: 'clipboard-list', path: '/events', href: 'events.html', roles: ['host', 'admin'] },
+        { label: 'Event workspace', icon: 'layout-panel-left', path: '/workspace', href: 'workspace.html', roles: ['host', 'admin'] },
       ],
     },
     {
-      label: 'Workflows & Forms', items: [
+      label: 'Hosting', items: [
+        { label: 'Create event', icon: 'plus', path: '/wizard', href: 'wizard.html', roles: ['host', 'admin'] },
+        { label: 'Results & release', icon: 'trophy', path: '/results', href: 'results.html', roles: ['host', 'admin'] },
+        { label: 'Reports & exports', icon: 'file-bar-chart', path: '/reports', href: 'reports.html', roles: ['host', 'admin'] },
+        { label: 'Messages & jobs', icon: 'send', path: '/messages', href: 'messages.html', roles: ['host', 'admin'] },
+        { label: 'Exceptions', icon: 'shield-alert', path: '/exceptions', href: 'exceptions.html', roles: ['host', 'admin'] },
+      ],
+    },
+    {
+      label: 'Evaluation', items: [
+        { label: 'Jury panel', icon: 'scale', path: '/forms/jury-management', href: 'forms-jury-management.html', roles: ['host', 'admin'] },
+        { label: 'Rubric builder', icon: 'list-checks', path: '/forms/rubric', href: 'forms-rubric.html', roles: ['host', 'admin'] },
+        { label: 'Judge scoring app', icon: 'smartphone', path: '/judge', href: 'judge.html', roles: ['jury', 'host', 'admin'] },
+        { label: 'Scanner app', icon: 'scan-line', path: '/scanner', href: 'scanner.html', roles: ['host', 'admin'] },
+        { label: 'Attendance check-in', icon: 'clipboard-check', path: '/forms/attendance', href: 'forms-attendance.html', roles: ['host', 'admin'] },
         { label: 'All forms & workflows', icon: 'layout-dashboard', path: '/forms', href: 'forms.html', roles: ['participant', 'host', 'jury', 'admin'] },
-        { label: 'Create event', icon: 'plus', path: '/forms/host-event', href: 'forms-host-event.html', roles: ['host', 'admin'] },
-        { label: 'Jury evaluation', icon: 'scale', path: '/forms/scoring', href: 'forms-scoring.html', roles: ['jury', 'host', 'admin'] },
-        { label: 'Attendance check-in', icon: 'clipboard-list', path: '/forms/attendance', href: 'forms-attendance.html', roles: ['host', 'admin'] },
       ],
     },
     {
@@ -417,9 +520,12 @@
     },
     {
       label: 'Administration', items: [
-        { label: 'Approval queue', icon: 'shield-check', count: 8, path: '/approvals', href: 'approvals.html', roles: ['admin'] },
+        { label: 'Review queue', icon: 'shield-check', count: 8, path: '/approvals', href: 'approvals.html', roles: ['admin'] },
         { label: 'Users', icon: 'users', path: '/users', href: 'users.html', roles: ['admin'] },
         { label: 'Activity & audit', icon: 'activity', path: '/audit', href: 'audit.html', roles: ['admin', 'host'] },
+        { label: 'Jobs & failed sends', icon: 'list-x', path: '/admin-jobs', href: 'admin-jobs.html', roles: ['admin'] },
+        { label: 'AI log', icon: 'sparkles', path: '/ai-log', href: 'ai-log.html', roles: ['admin'] },
+        { label: 'Platform settings', icon: 'settings-2', path: '/settings', href: 'settings.html', roles: ['admin'] },
       ],
     },
   ];
@@ -481,12 +587,28 @@
       + '<div class="breadcrumb"><span>' + esc(roleInfo.label) + '</span>' + ic('chevron-right', 14)
       + '<strong>' + esc(activeItem ? activeItem.label : 'Overview') + '</strong></div></div>'
       + '<div class="topbar-actions">'
+      + '<button class="icon-button theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">'
+      + '<span class="theme-icon-light">' + ic('moon', 19) + '</span><span class="theme-icon-dark">' + ic('sun', 19) + '</span></button>'
       + '<a class="icon-button notification-button" href="notifications.html" aria-label="Open notifications">' + ic('bell', 19) + '<span></span></a>'
       + '<div class="topbar-user" data-goto="forms-profile.html"><div class="avatar ' + roleInfo.color + '">' + esc(roleInfo.avatar)
       + '</div>' + ic('chevron-down', 15) + '</div>'
       + '</div></header>'
       + '<div class="page-container" id="page-content">' + contentHTML + '</div>'
+      + mobileBottomNav(currentRole)
       + '</main></div>';
+  }
+
+  function mobileBottomNav(currentRole) {
+    const items = [
+      { label: 'Events', icon: 'calendar-days', href: 'discover.html', roles: ['participant', 'host', 'admin'] },
+      { label: 'Tickets', icon: 'ticket-check', href: 'registrations.html', roles: ['participant'] },
+      { label: 'Plus', icon: 'plus-circle', href: 'wizard.html', roles: ['host', 'admin'] },
+      { label: 'Alerts', icon: 'bell', href: 'notifications.html', roles: ['participant', 'host', 'jury', 'admin'] },
+      { label: 'Me', icon: 'user-round', href: 'profile.html', roles: ['participant', 'host', 'jury', 'admin'] },
+    ].filter(function (i) { return i.roles.indexOf(currentRole) !== -1; }).slice(0, 4);
+    return '<nav class="bottom-nav" aria-label="Primary">' + items.map(function (i) {
+      return '<a href="' + i.href + '" class="bottom-nav-item">' + ic(i.icon, 20) + '<span>' + esc(i.label) + '</span></a>';
+    }).join('') + '</nav>';
   }
 
   function createEventModalHTML() {
@@ -566,6 +688,9 @@
 
     const createBtn = document.getElementById('create-event-btn');
     if (createBtn) createBtn.addEventListener('click', function () { openModal(createEventModalHTML()); });
+
+    const themeBtn = document.getElementById('theme-toggle');
+    if (themeBtn) themeBtn.addEventListener('click', function () { theme.toggle(); });
   }
 
   // Global delegation: modal close/continue/select + create-event type selection.
@@ -573,9 +698,9 @@
     const closeEl = e.target.closest('[data-close-modal]');
     if (closeEl) { closeModal(); return; }
     const continueEl = e.target.closest('[data-create-continue]');
-    if (continueEl) { closeModal(); window.location.href = 'forms-host-event.html'; return; }
+    if (continueEl) { closeModal(); window.location.href = 'wizard.html'; return; }
     const typeEl = e.target.closest('[data-create-type]');
-    if (typeEl) { closeModal(); window.location.href = 'forms-host-event.html'; return; }
+    if (typeEl) { closeModal(); window.location.href = 'wizard.html'; return; }
     const retryEl = e.target.closest('[data-retry-page]');
     if (retryEl) { WM.reload(); return; }
   });

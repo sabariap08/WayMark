@@ -15,9 +15,20 @@ window.WM_CONFIG = {
   TOKEN_KEY: 'waymark_token',
 
   // Set to false only if you want to browse pages without a Flask backend.
-  REQUIRE_AUTH: true,
+  REQUIRE_AUTH: false,
 
   // Optional: the login page shows a "Use demo account" shortcut when set.
   DEMO_EMAIL: '',
   DEMO_PASSWORD: '',
 };
+
+// Apply the saved theme as early as possible to avoid a flash of the
+// wrong palette. lib.js owns the toggle; this only reads the value.
+(function () {
+  try {
+    var saved = localStorage.getItem('waymark_theme');
+    document.documentElement.setAttribute('data-theme', saved === 'dark' ? 'dark' : 'light');
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+})();

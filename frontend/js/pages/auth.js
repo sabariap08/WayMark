@@ -231,42 +231,105 @@
 
   /* ===================== Password reset ===================== */
   function passwordReset() {
-    const state = { email: '', sent: false, loading: false, error: '' };
+    const state = {
+      email: '', step: 'email', code: '', password: '', confirm: '',
+      fallback: '', loading: false, error: '',
+    };
+
+    function heading(sub) {
+      return '<div class="auth-heading"><div class="auth-mobile-brand">' + brand() + '</div>'
+        + '<div class="eyebrow">Account recovery</div>'
+        + '<h2>' + (state.step === 'otp' ? 'Enter the code' : 'Reset your password') + '</h2>'
+        + '<p>' + sub + '</p></div>';
+    }
 
     function body() {
-      const heading = '<div class="auth-heading"><div class="auth-mobile-brand">' + brand() + '</div>'
-        + '<div class="eyebrow">Account recovery</div><h2>Reset your password</h2>'
-        + '<p>Enter your email address to receive a secure password reset link.</p></div>';
-      const content = state.sent
-        ? '<div class="auth-success"><div class="success-icon">' + ic('mail', 24) + '</div>'
-          + '<h3>Reset link sent</h3><p>We\u2019ve sent a password reset email to <strong>' + esc(state.email) + '</strong>. Check your inbox to continue.</p>'
-          + '<a class="button button-primary" href="login.html">' + ic('arrow-left', 16) + ' Return to sign in</a></div>'
-        : '<form class="auth-form" id="reset-form"><div class="field-group"><label for="reset-email">Email address</label>'
-          + '<div class="auth-input">' + ic('mail', 17)
-          + '<input id="reset-email" type="email" value="' + esc(state.email) + '" placeholder="you@example.com" required /></div></div>'
+      if (state.step === 'done') {
+        return heading('All set.') + '<div class="auth-success"><div class="success-icon">' + ic('shield-check', 24) + '</div>'
+          + '<h3>Password updated</h3><p>Your password has been changed. Sign in with your new password to continue.</p>'
+          + '<a class="button button-primary" href="login.html">' + ic('arrow-left', 16) + ' Return to sign in</a></div>';
+      }
+      if (state.step === 'otp') {
+        const note = state.fallback
+          ? '<div class="form-info">Email is not configured in this environment, so use this code: <strong>' + esc(state.fallback) + '</strong>. It is also kept in the app\u2019s message outbox.</div>'
+          : '<div class="form-info">We sent a verification code to <strong>' + esc(state.email) + '</strong>. It expires in 15 minutes.</div>';
+        return heading('Enter the code we sent, then choose a new password.')
+          + '<form class="auth-form" id="otp-form">' + note
+          + '<div class="field-group"><label for="reset-code">Verification code</label>'
+          + '<div class="auth-input">' + ic('shield-check', 17)
+          + '<input id="reset-code" inputmode="numeric" autocomplete="one-time-code" value="' + esc(state.code) + '" placeholder="Enter code" required /></div></div>'
+          + '<div class="field-group"><label for="reset-password">New password</label>'
+          + '<div class="auth-input">' + ic('lock', 17)
+          + '<input id="reset-password" type="password" value="' + esc(state.password) + '" placeholder="At least 8 characters" required /></div></div>'
+          + '<div class="field-group"><label for="reset-confirm">Confirm password</label>'
+          + '<div class="auth-input">' + ic('lock', 17)
+          + '<input id="reset-confirm" type="password" value="' + esc(state.confirm) + '" placeholder="Repeat the new password" required /></div></div>'
           + (state.error ? '<div class="form-error">' + esc(state.error) + '</div>' : '')
           + '<button class="button button-primary auth-submit" type="submit"' + (state.loading ? ' disabled' : '') + '>'
-          + (state.loading ? '<span class="loading-spinner"></span> Sending...' : 'Send reset link ' + ic('arrow-right', 16)) + '</button></form>';
-      return heading + content
+          + (state.loading ? '<span class="loading-spinner"></span> Verifying...' : 'Reset password ' + ic('arrow-right', 16)) + '</button></form>'
+          + '<div class="auth-switch"><button class="auth-help" type="button" id="otp-resend">Resend code</button></div>';
+      }
+      return heading('Enter your email address and we\u2019ll send a verification code.')
+        + '<form class="auth-form" id="reset-form"><div class="field-group"><label for="reset-email">Email address</label>'
+        + '<div class="auth-input">' + ic('mail', 17)
+        + '<input id="reset-email" type="email" value="' + esc(state.email) + '" placeholder="you@example.com" required /></div></div>'
+        + (state.error ? '<div class="form-error">' + esc(state.error) + '</div>' : '')
+        + '<button class="button button-primary auth-submit" type="submit"' + (state.loading ? ' disabled' : '') + '>'
+        + (state.loading ? '<span class="loading-spinner"></span> Sending...' : 'Send verification code ' + ic('arrow-right', 16)) + '</button></form>'
         + '<div class="auth-switch">Remembered your password? <a href="login.html">Sign in ' + ic('arrow-right', 14) + '</a></div>';
+    }
+
+    function requestCode() {
+      state.loading = true; state.error = ''; draw();
+      return global.WMApi.auth.requestPasswordReset(state.email).then(function (data) {
+        state.loading = false; state.step = 'otp';
+        state.fallback = (data && data.otpFallback) || '';
+        draw();
+      }, function (err) {
+        state.loading = false;
+        state.error = (err && err.message) || 'We could not send the reset code. Please try again.';
+        draw();
+      });
     }
 
     function draw() { mountShell(body(), bind); }
     function bind(root) {
-      const input = root.querySelector('#reset-email');
-      if (input) input.addEventListener('input', function () { state.email = input.value; state.error = ''; });
-      const f = root.querySelector('#reset-form');
-      if (f) f.addEventListener('submit', function (e) {
+      const emailInput = root.querySelector('#reset-email');
+      if (emailInput) emailInput.addEventListener('input', function () { state.email = emailInput.value; state.error = ''; });
+      const emailForm = root.querySelector('#reset-form');
+      if (emailForm) emailForm.addEventListener('submit', function (e) {
         e.preventDefault();
         if (!state.email) return;
+        requestCode();
+      });
+      const codeInput = root.querySelector('#reset-code');
+      if (codeInput) codeInput.addEventListener('input', function () { state.code = codeInput.value; state.error = ''; });
+      const pwInput = root.querySelector('#reset-password');
+      if (pwInput) pwInput.addEventListener('input', function () { state.password = pwInput.value; state.error = ''; });
+      const cfInput = root.querySelector('#reset-confirm');
+      if (cfInput) cfInput.addEventListener('input', function () { state.confirm = cfInput.value; state.error = ''; });
+      const otpForm = root.querySelector('#otp-form');
+      if (otpForm) otpForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!state.code) { state.error = 'Enter the verification code.'; draw(); return; }
+        if ((state.password || '').length < 8) { state.error = 'Password must be at least 8 characters.'; draw(); return; }
+        if (state.password !== state.confirm) { state.error = 'Passwords do not match.'; draw(); return; }
         state.loading = true; state.error = ''; draw();
-        global.WMApi.auth.requestPasswordReset(state.email).then(function () {
-          state.loading = false; state.sent = true; draw();
+        global.WMApi.auth.verifyOtp(state.email, 'password_reset', state.code).then(function (data) {
+          const token = (data && data.token) || '';
+          if (!token) throw new Error('Verification failed. Request a new code.');
+          return global.WMApi.auth.resetPassword(token, state.password);
+        }).then(function () {
+          state.loading = false; state.step = 'done'; draw();
         }, function (err) {
           state.loading = false;
-          state.error = (err && err.message) || 'We could not send the reset link. Please try again.';
+          state.error = (err && err.message) || 'We could not reset your password. Please try again.';
           draw();
         });
+      });
+      const resend = root.querySelector('#otp-resend');
+      if (resend) resend.addEventListener('click', function () {
+        requestCode().then(function () { WM.toast('A new code is on its way.'); });
       });
     }
     draw();

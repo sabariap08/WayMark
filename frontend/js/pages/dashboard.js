@@ -1,4 +1,7 @@
-/* Dashboard — ports pages/DashboardPage.tsx */
+/* Dashboard — ports pages/DashboardPage.tsx, extended to a role-aware
+ * blueprint dashboard: participant (upcoming + QR, waitlist, certificates,
+ * feedback pending), host (events overview), jury (assigned evaluations),
+ * admin (review queue + platform shortcuts). */
 (function (global) {
   'use strict';
   const WM = global.WM;
@@ -7,7 +10,147 @@
   const iconMap = { calendar: 'calendar-days', ticket: 'ticket-check', users: 'users', award: 'award' };
   const activityIconMap = { check: 'check', certificate: 'file-check-2', clock: 'clock-3', sparkles: 'sparkles', user: 'users', alert: 'shield-alert' };
 
-  function render() {
+  function myRegistrations() { return (D.registrations || []); }
+  function isUpcoming(reg) { return reg.status === 'Confirmed' || reg.status === 'Registered'; }
+  function isWaitlisted(reg) { return reg.status === 'Waitlisted' || reg.status === 'Offered'; }
+
+  function header(role, firstName, greeting, today) {
+    const actions = {
+      participant: '<a class="button button-primary" href="discover.html">' + ic('compass', 17) + 'Discover events</a>',
+      host: '<a class="button button-primary" href="wizard.html">' + ic('plus', 17) + 'Create event</a>',
+      jury: '<a class="button button-primary" href="judge.html">' + ic('scale', 17) + 'Open judge app</a>',
+      admin: '<a class="button button-primary" href="approvals.html">' + ic('shield-check', 17) + 'Open review queue</a>',
+    };
+    const ledes = {
+      participant: 'Your next events, tickets, and certificates \u2014 all in one place.',
+      host: 'Here\u2019s what\u2019s happening across your events today.',
+      jury: 'Your evaluation assignments and scoring progress.',
+      admin: 'Platform health, review queue, and recent activity.',
+    };
+    return '<div class="welcome-row"><div><div class="eyebrow">' + esc(today) + '</div>'
+      + '<h1>' + esc(greeting) + ', ' + esc(firstName) + '.</h1><p class="lede">' + ledes[role] + '</p></div>'
+      + (actions[role] || actions.participant) + '</div>';
+  }
+
+  /* ---------- Participant ---------- */
+  function participantSection() {
+    const regs = myRegistrations();
+    const upcoming = regs.filter(isUpcoming);
+    const waitlisted = regs.filter(isWaitlisted);
+    const validCerts = (D.certificates || []).filter(function (c) { return c.status === 'Valid' || !c.status; });
+    const completed = regs.filter(function (r) { return r.status === 'Completed'; });
+    const feedbackEventIds = (D.feedback || []).map(function (f) { return String(f.eventId); });
+    const feedbackPending = completed.filter(function (r) { return feedbackEventIds.indexOf(String(r.eventId)) === -1; });
+
+    const stats = [
+      ui.statCard({ label: 'Upcoming events', value: String(upcoming.length), detail: upcoming.length ? 'Next: ' + upcoming[0].eventTitle : 'Nothing scheduled yet', icon: 'calendar-days', accent: 'blue' }),
+      ui.statCard({ label: 'Waitlist', value: String(waitlisted.length), detail: waitlisted.length ? 'Offers expire in 48h' : 'No waitlist entries', icon: 'clock-3', accent: 'amber' }),
+      ui.statCard({ label: 'Certificates ready', value: String(validCerts.length), detail: 'Ready to download & verify', icon: 'award', accent: 'teal' }),
+      ui.statCard({ label: 'Feedback pending', value: String(feedbackPending.length), detail: 'Events awaiting your review', icon: 'message-square', accent: 'rose' }),
+    ].join('');
+
+    const next = upcoming[0];
+    const nextCard = next
+      ? '<section class="panel panel-wide next-event-panel">' + ui.sectionHeading({ eyebrow: 'Next up', title: 'Your next event' })
+        + '<div class="fact-grid"><div class="fact-item"><span>Event</span><strong>' + esc(next.eventTitle) + '</strong></div>'
+        + '<div class="fact-item"><span>Date</span><strong>' + esc(next.date) + '</strong></div>'
+        + '<div class="fact-item"><span>Time</span><strong>' + esc(next.time || '\u2014') + '</strong></div>'
+        + '<div class="fact-item"><span>Venue</span><strong>' + esc(next.location || '\u2014') + '</strong></div></div>'
+        + '<div class="modal-actions"><a class="button button-secondary" href="discover.html">Browse more events</a>'
+        + '<a class="button button-primary" href="registrations.html">' + ic('qr-code', 16) + ' View ticket & QR pass</a></div></section>'
+      : ui.emptyView({ title: 'No upcoming events', description: 'Find your next meaningful room on the discovery page.', action: '<a class="button button-primary" href="discover.html">Discover events</a>' });
+
+    const waitlistRows = waitlisted.map(function (reg) {
+      return '<div class="event-row"><div class="event-row-main"><div class="event-row-title"><strong>' + esc(reg.eventTitle) + '</strong>'
+        + WM.statusChip(reg.status) + '</div><span>' + esc(reg.date) + ' \u00b7 ' + esc(reg.location || '') + '</span>'
+        + '<small>' + (reg.status === 'Offered' ? 'A seat opened up \u2014 accept before the offer expires.' : 'You are on the waitlist. We will email you when a seat opens.') + '</small></div>'
+        + (reg.status === 'Offered' ? '<button class="button button-primary" data-accept-offer="' + esc(reg.id) + '">Accept offer</button>' : '')
+        + '</div>';
+    }).join('');
+
+    const certRows = validCerts.slice(0, 3).map(function (c) {
+      return '<div class="timeline-item"><span class="timeline-dot timeline-dot-green"></span>'
+        + '<div><strong>' + esc(c.eventTitle || c.event || 'Certificate') + '</strong>'
+        + '<span class="mono">' + esc(c.credentialId || c.id || '') + '</span></div></div>';
+    }).join('') || '<p class="lede">Certificates appear here after you complete an event.</p>';
+
+    const feedbackRows = feedbackPending.slice(0, 3).map(function (reg) {
+      return '<div class="event-row"><div class="event-row-main"><div class="event-row-title"><strong>' + esc(reg.eventTitle) + '</strong></div>'
+        + '<span>' + esc(reg.date) + '</span><small>How was it? Your feedback shapes the next edition.</small></div>'
+        + '<a class="button button-secondary" href="forms-feedback.html">Share feedback</a></div>';
+    }).join('') || '<p class="lede">No feedback requests right now.</p>';
+
+    return '<div class="stat-grid">' + stats + '</div>'
+      + nextCard
+      + '<div class="content-grid">'
+      + '<section class="panel panel-wide">' + ui.sectionHeading({ eyebrow: 'Seats opening up', title: 'Waitlist' })
+      + (waitlistRows || '<p class="lede">You are not on any waitlists.</p>') + '</section>'
+      + '<section class="panel">' + ui.sectionHeading({ eyebrow: 'Credentials', title: 'Certificates', action: '<a class="button button-ghost" href="my-certificates.html">View all ' + ic('chevron-right', 15) + '</a>' })
+      + '<div class="timeline">' + certRows + '</div></section>'
+      + '</div>'
+      + '<section class="panel">' + ui.sectionHeading({ eyebrow: 'Tell us how it went', title: 'Feedback pending' })
+      + '<div class="event-list">' + feedbackRows + '</div></section>';
+  }
+
+  /* ---------- Jury ---------- */
+  function jurySection() {
+    const assignments = (D.juryAssignments || []);
+    const done = assignments.filter(function (a) { return a.status === 'Completed' || a.status === 'Scored'; }).length;
+    const stats = [
+      ui.statCard({ label: 'Assigned evaluations', value: String(assignments.length), detail: 'Across active events', icon: 'clipboard-list', accent: 'blue' }),
+      ui.statCard({ label: 'Scored', value: String(done), detail: 'Submissions finalised', icon: 'check-circle-2', accent: 'teal' }),
+      ui.statCard({ label: 'Remaining', value: String(Math.max(assignments.length - done, 0)), detail: 'Awaiting your scores', icon: 'clock-3', accent: 'amber' }),
+    ].join('');
+
+    const rows = assignments.slice(0, 5).map(function (a) {
+      return '<div class="event-row"><div class="event-row-main"><div class="event-row-title"><strong>' + esc(a.eventTitle || 'Event') + '</strong>'
+        + WM.statusChip(a.status || 'Assigned') + '</div><span>' + esc(a.expertise || 'Jury member') + '</span></div>'
+        + '<a class="button button-secondary" href="judge.html">Score ' + ic('chevron-right', 15) + '</a></div>';
+    }).join('') || '<p class="lede">No assignments yet \u2014 you will see events here once a host assigns you.</p>';
+
+    return '<div class="stat-grid compact">' + stats + '</div>'
+      + '<section class="panel">' + ui.sectionHeading({ eyebrow: 'Evaluation', title: 'Your assignments', action: '<a class="button button-primary" href="judge.html">' + ic('scale', 16) + ' Open judge app</a>' })
+      + '<div class="event-list">' + rows + '</div></section>'
+      + '<section class="panel"><div class="lede">Scores are scored against the event rubric and stay hidden from participants until results are released.</div></section>';
+  }
+
+  /* ---------- Admin ---------- */
+  function adminSection() {
+    const pending = (D.events || []).filter(function (e) {
+      const s = e.approvalStatus || '';
+      return s === 'Pending approval' || s === 'Pending review' || s === 'Changes requested';
+    });
+    const failedJobs = 0;
+    const quick = [
+      ['Review queue', 'Approve or request changes on submitted events', 'approvals.html'],
+      ['Jobs & failed sends', 'Retry failed email and processing jobs', 'admin-jobs.html'],
+      ['AI log', 'Prompts and outcomes from the assistant', 'ai-log.html'],
+      ['Platform settings', 'Defaults, branding, and AI budget', 'settings.html'],
+    ].map(function (q) {
+      return '<a class="quick-action-item" href="' + q[2] + '"><div><strong>' + esc(q[0]) + '</strong><small>' + esc(q[1]) + '</small></div>' + ic('chevron-right', 16) + '</a>';
+    }).join('');
+
+    const reviewRows = pending.slice(0, 4).map(function (e) {
+      return '<div class="event-row"><div class="event-row-main"><div class="event-row-title"><strong>' + esc(e.title) + '</strong>'
+        + WM.statusChip(e.approvalStatus) + '</div><span>' + esc(e.category) + ' \u00b7 submitted ' + esc(e.submittedAt || e.createdAt || '\u2014') + '</span></div>'
+        + '<a class="button button-secondary" href="approvals.html">Review</a></div>';
+    }).join('') || '<p class="lede">Review queue is clear. Nice.</p>';
+
+    return '<div class="stat-grid compact">'
+      + ui.statCard({ label: 'Awaiting review', value: String(pending.length), detail: 'Events needing a decision', icon: 'shield-check', accent: 'amber' })
+      + ui.statCard({ label: 'Failed jobs', value: String(failedJobs), detail: 'Check jobs & failed sends', icon: 'list-x', accent: 'rose' })
+      + ui.statCard({ label: 'Platform events', value: String((D.events || []).length), detail: 'Across all hosts', icon: 'calendar-days', accent: 'blue' })
+      + '</div>'
+      + '<div class="content-grid">'
+      + '<section class="panel panel-wide">' + ui.sectionHeading({ eyebrow: 'Moderation', title: 'Review queue' })
+      + '<div class="event-list">' + reviewRows + '</div></section>'
+      + '<section class="panel">' + ui.sectionHeading({ eyebrow: 'Shortcuts', title: 'Admin tools' })
+      + '<div class="quick-action-list">' + quick + '</div></section>'
+      + '</div>';
+  }
+
+  /* ---------- Host overview (existing blueprint table + charts) ---------- */
+  function hostSection() {
     const state = WM.__dashboardState;
     const cats = D.eventCategories, stats = D.eventStatuses;
 
@@ -28,15 +171,15 @@
 
     const rows = filtered.map(function (event) {
       const pct = Math.round((event.registrations / event.capacity) * 100);
-      const color = event.registrations / event.capacity > 0.9 ? '#d97f4f' : '#3a8d72';
+      const color = event.registrations / event.capacity > 0.9 ? '#d97f4f' : '#3b6fe0';
       return '<div class="dashboard-table-row">'
         + '<div class="table-event"><div class="mini-thumb ' + event.color + '">' + esc(event.initials) + '</div>'
         + '<div><strong>' + esc(event.title) + '</strong><small>' + esc(event.category) + '</small></div></div>'
         + '<span class="dashboard-cell-date">' + esc(event.date) + '</span>'
         + '<div class="dashboard-reg-cell"><span class="dashboard-reg-num">' + event.registrations + '/' + event.capacity + '</span>'
         + '<div class="capacity-bar"><div class="capacity-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>'
-        + ui.badge(event.status, event.tone)
-        + '<button class="row-action">Manage ' + ic('chevron-right', 15) + '</button></div>';
+        + WM.statusChip(event.status)
+        + '<a class="row-action" href="workspace.html">Manage ' + ic('chevron-right', 15) + '</a></div>';
     }).join('');
 
     const hasFilters = state.query || state.category !== cats[0] || state.status !== stats[0];
@@ -52,9 +195,10 @@
         + '<time>' + esc(item.time) + '</time></div>';
     }).join('');
 
-    const quickActions = D.quickActions.map(function (a) {
-      return '<button class="quick-action-item"><div><strong>' + esc(a.label) + '</strong><small>' + esc(a.detail) + '</small></div>'
-        + ic('chevron-right', 16, 'class="row-chevron"') + '</button>';
+    const quickActions = D.quickActions.map(function (a, index) {
+      const hrefs = ['wizard.html', 'messages.html', 'forms-certificates.html', 'reports.html'];
+      return '<a class="quick-action-item" href="' + (hrefs[index] || 'forms.html') + '"><div><strong>' + esc(a.label) + '</strong><small>' + esc(a.detail) + '</small></div>'
+        + ic('chevron-right', 16, 'class="row-chevron"') + '</a>';
     }).join('');
 
     const notifTone = { reminder: 'amber', certificate: 'blue', approval: 'green', alert: 'red' };
@@ -67,18 +211,7 @@
         + '<time>' + esc(n.time) + '</time></div>';
     }).join('') || '<p class="lede">No notifications yet.</p>';
 
-    const user = WM.Auth.getUser();
-    const firstName = user && user.name ? String(user.name).split(' ')[0] : 'there';
-    const hour = new Date().getHours();
-    const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-
-    return '<div class="page-stack">'
-      + '<div class="welcome-row"><div><div class="eyebrow">' + esc(today) + '</div>'
-      + '<h1>' + esc(greeting) + ', ' + esc(firstName) + '.</h1><p class="lede">Here\u2019s what\u2019s happening across your events today.</p></div>'
-      + '<button class="button button-primary">' + ic('plus', 17) + 'Create event</button></div>'
-
-      + '<div class="stat-grid">' + statCards + '</div>'
+    return '<div class="stat-grid">' + statCards + '</div>'
 
       + '<div class="dashboard-chart-row">'
       + '<section class="panel panel-wide">' + ui.sectionHeading({ eyebrow: 'Growth', title: 'Registration trend', action: '<div class="chart-period-tabs"><button class="active">6 months</button><button>Year</button></div>' }) + WM.charts.lineChart(D.registrationTrend) + '</section>'
@@ -106,12 +239,29 @@
       + tableBody + '</section>'
 
       + '<div class="content-grid">'
-      + '<section class="panel panel-wide">' + ui.sectionHeading({ eyebrow: 'Timeline', title: 'Recent activity', action: '<button class="button button-ghost">View all ' + ic('chevron-right', 16) + '</button>' }) + '<div class="activity-list">' + activity + '</div></section>'
-      + '<section class="panel notification-panel">' + ui.sectionHeading({ eyebrow: 'Stay in the loop', title: 'Notifications', action: '<button class="icon-button">' + ic('activity', 19) + '</button>' }) + '<div class="activity-list">'
+      + '<section class="panel panel-wide">' + ui.sectionHeading({ eyebrow: 'Timeline', title: 'Recent activity', action: '<a class="button button-ghost" href="audit.html">View all ' + ic('chevron-right', 16) + '</a>' }) + '<div class="activity-list">' + activity + '</div></section>'
+      + '<section class="panel notification-panel">' + ui.sectionHeading({ eyebrow: 'Stay in the loop', title: 'Notifications', action: '<a class="icon-button" href="notifications.html">' + ic('activity', 19) + '</a>' }) + '<div class="activity-list">'
       + notifItems
       + '</div><a class="button button-secondary full-button" href="notifications.html">Open notification inbox</a></section>'
-      + '</div>'
+      + '</div>';
+  }
 
+  function render() {
+    const role = WM.Auth.getRole();
+    const user = WM.Auth.getUser();
+    const firstName = user && user.name ? String(user.name).split(' ')[0] : 'there';
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+    const body = role === 'participant' ? participantSection()
+      : role === 'jury' ? jurySection()
+        : role === 'admin' ? adminSection() + hostSection()
+          : hostSection();
+
+    return '<div class="page-stack">'
+      + header(role, firstName, greeting, today)
+      + body
       + '<section class="discover-banner"><div class="banner-mark">' + ic('sparkles', 23) + '</div>'
       + '<div><strong>Find your next meaningful room.</strong>'
       + '<span>Discover workshops, competitions, and communities built around shared momentum.</span></div>'
@@ -120,7 +270,8 @@
   }
 
   function mounted(ref) {
-    const content = ref.content;
+    const role = WM.Auth.getRole();
+
     function refresh(focusId) { WM.refreshContent(render, focusId); wire(); }
 
     function wire() {
@@ -140,6 +291,19 @@
         b.addEventListener('click', function () {
           WM.__dashboardState = { query: '', category: D.eventCategories[0], status: D.eventStatuses[0] };
           refresh();
+        });
+      });
+      document.querySelectorAll('[data-accept-offer]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          const id = b.getAttribute('data-accept-offer');
+          b.disabled = true;
+          global.WMApi.registrations.acceptOffer(id).then(function () {
+            WM.toast('Seat accepted \u2014 your registration is confirmed.');
+            refresh();
+          }, function (err) {
+            b.disabled = false;
+            WM.toast((err && err.message) || 'Could not accept the offer.', 'error');
+          });
         });
       });
     }

@@ -29,13 +29,18 @@
           && (state.category === 'All categories' || event.category === state.category);
       });
 
-      const cards = filtered.map(function (event) {
+const cards = filtered.map(function (event) {
+        const capacity = event.capacityNum || 0;
+        const registered = event.registeredNum || 0;
+        const seatsLeft = capacity ? Math.max(capacity - registered, 0) : null;
+        const seatLabel = seatsLeft == null ? (event.seats || 'Open registration')
+          : (seatsLeft === 0 ? 'Waitlist only' : seatsLeft + ' of ' + capacity + ' seats left');
         return '<article class="event-card" data-event="' + esc(event.id) + '">'
           + '<div class="card-art ' + event.color + '"><span>' + esc(event.initials) + '</span>' + ui.badge(event.status, event.tone) + '</div>'
           + '<div class="event-card-body"><div class="eyebrow">' + esc(event.category) + '</div><h3>' + esc(event.title) + '</h3>'
-          + '<p>' + ic('calendar-days', 15) + esc(event.date) + ' · ' + esc(event.time) + '</p>'
+          + '<p>' + ic('calendar-days', 15) + esc(event.date) + ' \u00b7 ' + esc(event.time) + '</p>'
           + '<p>' + ic('users', 15) + esc(event.location) + '</p>'
-          + '<div class="card-footer"><span>' + esc(event.seats) + '</span>'
+          + '<div class="card-footer"><span>' + (seatsLeft === 0 ? '<span class="status-badge status-amber">Waitlist</span> ' : '') + esc(seatLabel) + '</span>'
           + '<span class="text-link">View details ' + ic('chevron-right', 14) + '</span></div></div></article>';
       }).join('');
 
@@ -47,7 +52,7 @@
       return '<div class="page-stack">'
         + '<div class="welcome-row"><div><div class="eyebrow">Open doors</div><h1>Discover events</h1>'
         + '<p class="lede">Find the spaces, people, and ideas worth showing up for.</p></div>'
-        + '<a class="button button-primary" href="forms-host-event.html">' + ic('plus', 17) + 'Create event</a></div>'
+        + '<a class="button button-primary" href="wizard.html">' + ic('plus', 17) + 'Create event</a></div>'
         + '<div class="search-toolbar"><label class="search-field">' + ic('search', 18)
         + '<input id="disc-search" value="' + esc(state.query) + '" placeholder="Search events, topics, or keywords" /></label>'
         + '<label class="select-field">' + ic('filter', 17) + '<select id="disc-category">'
@@ -74,29 +79,9 @@
       });
       document.querySelectorAll('[data-event]').forEach(function (card) {
         card.addEventListener('click', function () {
-          const ev = D.events.find(function (e) { return String(e.id) === card.getAttribute('data-event'); });
-          if (ev) WM.openModal(eventDetailModal(ev));
+          window.location.href = 'event-detail.html?id=' + encodeURIComponent(card.getAttribute('data-event'));
         });
       });
-    }
-
-    function eventDetailModal(event) {
-      const agenda = event.agenda ? '<div class="event-agenda-section"><span class="eyebrow">Event Schedule</span><ul class="agenda-list">'
-        + event.agenda.map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('') + '</ul></div>' : '';
-      return '<div class="modal-backdrop" role="presentation"><section class="modal-card modal-card-wide" role="dialog" aria-modal="true">'
-        + '<button class="modal-close" data-close-modal aria-label="Close">' + ic('x', 19) + '</button>'
-        + '<div class="event-detail-banner ' + event.color + '"><span class="banner-initials">' + esc(event.initials) + '</span>' + ui.badge(event.status, event.tone) + '</div>'
-        + '<div class="eyebrow">' + esc(event.category) + '</div><h2>' + esc(event.title) + '</h2>'
-        + '<p class="lede">' + esc(event.description) + '</p>'
-        + '<div class="event-detail-grid">'
-        + '<div><span class="eyebrow">Date & Time</span><strong>' + esc(event.date) + '</strong><small>' + esc(event.time) + '</small></div>'
-        + '<div><span class="eyebrow">Location</span><strong>' + esc(event.location) + '</strong></div>'
-        + '<div><span class="eyebrow">Host</span><strong>' + esc(event.organizer || 'WayMark Platform') + '</strong></div>'
-        + '<div><span class="eyebrow">Availability</span><strong>' + esc(event.seats) + '</strong></div></div>'
-        + agenda
-        + '<div class="modal-actions"><button class="button button-secondary" data-close-modal>Close</button>'
-        + '<a class="button button-primary" href="forms-event-registration.html?event=' + encodeURIComponent(event.id) + '">Register for event ' + ic('chevron-right', 16) + '</a></div>'
-        + '</section></div>';
     }
 
     WM.page({ route: '/discover', render: render, mounted: wire, load: LOAD });
@@ -109,16 +94,23 @@
     function render() {
       const regs = D.registrations;
       const leaderboard = D.leaderboard;
+      const waitlisted = regs.filter(function (r) { return r.status === 'Waitlisted' || r.status === 'Offered'; });
       const filtered = state.tab === 'upcoming' ? regs.filter(function (r) { return r.status === 'Confirmed'; })
-        : state.tab === 'completed' ? regs.filter(function (r) { return r.status === 'Completed'; }) : regs;
+        : state.tab === 'completed' ? regs.filter(function (r) { return r.status === 'Completed'; })
+          : state.tab === 'waitlist' ? waitlisted : regs;
 
       const rows = filtered.map(function (reg) {
         return '<div class="table-row">'
           + tableEvent({ title: reg.eventTitle, category: reg.category, initials: eventInitials(reg.eventTitle), color: 'bg-cyan-700' })
           + '<span>' + esc(reg.date) + '</span>'
-          + ui.badge(reg.status, reg.status === 'Completed' ? 'slate' : 'green')
+          + WM.statusChip(reg.status)
           + '<span>' + esc(reg.attendanceStatus) + '</span>'
-          + '<button class="row-action" data-ticket="' + esc(reg.id) + '">View Ticket ' + ic('chevron-right', 15) + '</button></div>';
+          + '<div class="row-actions-cell">'
+          + (reg.status === 'Offered'
+            ? '<button class="button button-primary" data-accept-offer="' + esc(reg.id) + '">Accept offer</button>'
+            + '<button class="button button-secondary" data-decline-offer="' + esc(reg.id) + '">Decline</button>'
+            : '')
+          + '<button class="row-action" data-ticket="' + esc(reg.id) + '">View Ticket ' + ic('chevron-right', 15) + '</button></div></div>';
       }).join('');
 
       const lb = leaderboard.map(function (item) {
@@ -134,6 +126,7 @@
         + '<div class="filter-tabs">'
         + '<button class="' + (state.tab === 'all' ? 'active' : '') + '" data-tab="all">All <span>' + regs.length + '</span></button>'
         + '<button class="' + (state.tab === 'upcoming' ? 'active' : '') + '" data-tab="upcoming">Upcoming <span>' + regs.filter(function (r) { return r.status === 'Confirmed'; }).length + '</span></button>'
+        + '<button class="' + (state.tab === 'waitlist' ? 'active' : '') + '" data-tab="waitlist">Waitlist <span>' + waitlisted.length + '</span></button>'
         + '<button class="' + (state.tab === 'completed' ? 'active' : '') + '" data-tab="completed">Completed <span>' + regs.filter(function (r) { return r.status === 'Completed'; }).length + '</span></button>'
         + '</div>'
         + '<section class="panel table-panel">' + tableHead(['Event', 'Date', 'Registration', 'Attendance', 'Ticket']) + rows + '</section>'
@@ -154,6 +147,30 @@
           if (reg) WM.openModal(ticketModal(reg));
         });
       });
+      document.querySelectorAll('[data-accept-offer]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          b.disabled = true;
+          global.WMApi.registrations.acceptOffer(b.getAttribute('data-accept-offer')).then(function () {
+            WM.toast('Seat accepted \u2014 your registration is confirmed.');
+            refresh();
+          }, function (err) {
+            b.disabled = false;
+            WM.toast((err && err.message) || 'Could not accept the offer.', 'error');
+          });
+        });
+      });
+      document.querySelectorAll('[data-decline-offer]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          b.disabled = true;
+          global.WMApi.registrations.declineOffer(b.getAttribute('data-decline-offer')).then(function () {
+            WM.toast('Offer declined \u2014 the seat goes to the next person in line.', 'warning');
+            refresh();
+          }, function (err) {
+            b.disabled = false;
+            WM.toast((err && err.message) || 'Could not decline the offer.', 'error');
+          });
+        });
+      });
       const dl = document.querySelector('[data-download-list]');
       if (dl) dl.addEventListener('click', function () {
         const csv = 'Event Title,Category,Date,Time,Location,Status,Ticket Code\n'
@@ -167,7 +184,7 @@
         + '<button class="modal-close" data-close-modal aria-label="Close">' + ic('x', 19) + '</button>'
         + '<div class="ticket-modal-head"><div class="modal-icon">' + ic('qr-code', 24) + '</div>'
         + '<span class="eyebrow">Official Event Pass</span><h2>' + esc(reg.eventTitle) + '</h2>'
-        + ui.badge(reg.status, reg.status === 'Completed' ? 'slate' : 'green') + '</div>'
+        + WM.statusChip(reg.status) + '</div>'
         + '<div class="ticket-card-body"><div class="ticket-qr-wrap">' + ic('qr-code', 120, 'stroke-width="1.5"')
         + '<code class="ticket-code">' + esc(reg.ticketCode) + '</code></div>'
         + '<div class="ticket-meta-grid">'
@@ -212,7 +229,7 @@
 
       return '<div class="page-stack">'
         + ui.sectionHeading({ eyebrow: 'Host workspace', title: 'My events', action: '<div class="heading-actions"><button class="button button-secondary" data-export-events>' + ic('download', 15) + 'Export</button>'
-          + '<a class="button button-primary" href="forms-host-event.html">' + ic('plus', 17) + 'Create event</a></div>' })
+          + '<a class="button button-primary" href="wizard.html">' + ic('plus', 17) + 'Create event</a></div>' })
         + '<div class="stat-grid compact">'
         + ui.statCard({ label: 'All events', value: String(events.length), detail: 'Across ' + categories.length + ' categories', icon: 'clipboard-list', accent: 'blue' })
         + ui.statCard({ label: 'Published', value: String(published), detail: 'Currently discoverable', icon: 'zap', accent: 'teal' })

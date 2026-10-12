@@ -1,0 +1,178 @@
+"""WayMark backend entry point.
+
+Run:  python app.py
+Then open http://127.0.0.1:5000
+
+On start the app:
+  1. connects to the Supabase Postgres instance (falls back to SQLite if
+     unreachable and SQLITE_FALLBACK=1),
+  2. creates all tables,
+  3. seeds demo data on first run,
+  4. serves the REST API under /api and the static frontend from ../frontend.
+"""
+import os
+import sys
+
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
+from sqlalchemy import create_engine, text
+
+from config import Config
+from extensions import db
+from utils.mailer import email_configured
+
+
+def resolve_database_uri(cfg):
+    uri = cfg.DATABASE_URL
+    if uri.startswith('sqlite'):
+        return uri, 'SQLite: ' + uri
+    try:
+        engine = create_engine(uri, connect_args={'connect_timeout': 10})
+        with engine.connect() as conn:
+            conn.execute(text('SELECT 1'))
+        engine.dispose()
+        return uri, 'Supabase Postgres @ ' + cfg.DB_HOST + ':' + cfg.DB_PORT
+    except Exception as exc:
+        print('!! Could not reach Supabase Postgres: ' + str(exc)[:280])
+        if cfg.SQLITE_FALLBACK:
+            fallback = 'sqlite:///' + cfg.SQLITE_PATH
+            print('!! Falling back to local SQLite so the app still runs:')
+            print('   ' + fallback)
+            print('   (set SQLITE_FALLBACK=0 in .env to fail hard instead)')
+            return fallback, 'SQLite fallback: ' + cfg.SQLITE_PATH
+        raise
+
+
+def register_blueprints(app):
+    from blueprints.auth import auth_bp
+    from blueprints.meta import meta_bp
+    from blueprints.users import users_bp
+    from blueprints.events import events_bp
+    from blueprints.registrations import registrations_bp
+    from blueprints.attendance import attendance_bp
+    from blueprints.jury import jury_bp
+    from blueprints.rubrics import rubrics_bp
+    from blueprints.submissions import submissions_bp
+    from blueprints.scores import scores_bp
+    from blueprints.feedback import feedback_bp
+    from blueprints.certificates import certificates_bp
+    from blueprints.notifications import notifications_bp
+    from blueprints.audit import audit_bp
+    from blueprints.dashboard import dashboard_bp
+    from blueprints.leaderboard import leaderboard_bp
+    from blueprints.reports import reports_bp
+    from blueprints.admin import admin_bp
+    from blueprints.messages import messages_bp
+    from blueprints.ai import ai_bp
+    from blueprints.guest import guest_bp
+
+    for bp in (auth_bp, meta_bp, users_bp, events_bp, registrations_bp, attendance_bp,
+               jury_bp, rubrics_bp, submissions_bp, scores_bp, feedback_bp, certificates_bp,
+               notifications_bp, audit_bp, dashboard_bp, leaderboard_bp, reports_bp,
+               admin_bp, messages_bp, ai_bp, guest_bp):
+        app.register_blueprint(bp, url_prefix='/api')
+
+
+def create_app():
+    cfg = Config
+    app = Flask(__name__, static_folder=cfg.FRONTEND_DIR, static_url_path='')
+    db_uri, db_label = resolve_database_uri(cfg)
+    engine_options = {'pool_pre_ping': True, 'pool_recycle': 280}
+    if db_uri.startswith('postgresql'):
+        engine_options['connect_args'] = {
+            'connect_timeout': 10,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 3,
+            'options': '-c statement_timeout=20000',
+        }
+    app.config.update(
+        SECRET_KEY=cfg.SECRET_KEY,
+        JWT_EXP_HOURS=cfg.JWT_EXP_HOURS,
+        SQLALCHEMY_DATABASE_URI=db_uri,
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        SQLALCHEMY_ENGINE_OPTIONS=engine_options,
+        DEMO_USER_EMAIL=cfg.DEMO_USER_EMAIL,
+        OTP_LENGTH=cfg.OTP_LENGTH,
+        OTP_EXP_MINUTES=cfg.OTP_EXP_MINUTES,
+        SMTP_HOST=cfg.SMTP_HOST,
+        SMTP_PORT=cfg.SMTP_PORT,
+        SMTP_USER=cfg.SMTP_USER,
+        SMTP_PASSWORD=cfg.SMTP_PASSWORD,
+        SMTP_FROM=cfg.SMTP_FROM,
+    )
+    app.json.sort_keys = False
+    CORS(app, resources={r'/api/*': {'origins': '*'}})
+    db.init_app(app)
+    app.extensions['wm_database_label'] = db_label
+
+    register_blueprints(app)
+
+    @app.route('/api/health')
+    def health():
+        return jsonify({
+            'ok': True,
+            'database': app.extensions.get('wm_database_label', ''),
+            'emailConfigured': email_configured(),
+            'otpFallback': '0' * int(app.config['OTP_LENGTH']),
+        })
+
+    @app.route('/')
+    def index():
+        return send_from_directory(cfg.FRONTEND_DIR, 'index.html')
+
+    @app.errorhandler(404)
+    def not_found(error):
+        if request.path.startswith('/api/'):
+            return jsonify({'message': 'Endpoint not found: ' + request.path}), 404
+        return error
+
+    @app.errorhandler(500)
+    def server_error(error):
+        if request.path.startswith('/api/'):
+            return jsonify({'message': 'Internal server error.'}), 500
+        return error
+
+    with app.app_context():
+        from seed import seed_all
+        db.create_all()
+        seeded = seed_all()
+        app.extensions['wm_seeded'] = seeded
+
+    return app
+
+
+def main():
+    app = create_app()
+    port = int(os.getenv('PORT', '5000'))
+    frontend = Config.FRONTEND_DIR
+    with app.app_context():
+        email_ready = email_configured()
+    print('')
+    print('  WayMark backend is starting')
+    print('  ------------------------------------------------')
+    print('  Database : ' + app.extensions['wm_database_label'])
+    print('  Seed     : ' + ('demo data inserted' if app.extensions['wm_seeded'] else 'existing data kept'))
+    print('  Email    : ' + ('SMTP configured' if email_ready
+                             else 'not configured - mail goes to the in-app outbox, OTP falls back to '
+                                  + '0' * int(app.config['OTP_LENGTH'])))
+    print('  Frontend : ' + frontend)
+    print('  Open     : http://127.0.0.1:' + str(port) + '/')
+    print('  API      : http://127.0.0.1:' + str(port) + '/api/health')
+    print('  ------------------------------------------------')
+    print('  Demo logins (password: waymark123)')
+    print('    admin@waymark.dev     - admin')
+    print('    host@waymark.dev      - host')
+    print('    jury@waymark.dev      - jury')
+    print('    member@waymark.dev    - participant')
+    print('  ------------------------------------------------')
+    print('')
+    app.run(host='0.0.0.0', port=port, debug=False)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)
