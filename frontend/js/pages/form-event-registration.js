@@ -2,15 +2,55 @@
 (function (global) {
   'use strict';
   const WM = global.WM;
+  const D = global.WMData;
   const ic = WM.ic, F = WM.forms, ui = WM.ui;
 
   function eventRegistration() {
     const s = {
-      eventType: 'Hackathon', fullName: 'Maya Chen', email: 'maya@waymark.events', phone: '', org: '',
+      eventId: '', eventTitle: '', eventStatus: 'Registration open', eventTone: 'green',
+      eventType: 'Hackathon', fullName: '', email: '', phone: '', org: '',
       teamName: '', teamSize: '1', experienceLevel: '', dietaryPref: '', track: '', posterTopic: '',
       accommodation: false, transport: false, agree: false, agreeCode: false,
       errors: {}, status: 'idle', statusMsg: '', loading: false,
     };
+
+    function applyUser(user) {
+      if (!user) return;
+      const u = user.user || user.profile || user;
+      s.fullName = u.name || u.fullName || s.fullName;
+      s.email = u.email || s.email;
+      s.phone = u.phone || s.phone;
+      s.org = u.org || s.org;
+    }
+
+    function load() {
+      return D.ready().then(function () {
+        const params = new URLSearchParams(global.location.search);
+        const id = params.get('event');
+        const event = (id && D.events.find(function (e) { return String(e.id) === id; })) || D.events[0] || null;
+        if (event) {
+          s.eventId = event.id;
+          s.eventTitle = event.title;
+          s.eventStatus = event.status || 'Registration open';
+          s.eventTone = event.tone || 'green';
+          if (event.category) s.eventType = event.category;
+        }
+        const user = WM.Auth.getUser();
+        if (user) applyUser(user);
+        if (!s.email) return global.WMApi.users.me().then(applyUser, function () { /* optional */ });
+        return null;
+      });
+    }
+
+    function payload() {
+      return {
+        eventId: s.eventId,
+        fullName: s.fullName, email: s.email, phone: s.phone, org: s.org,
+        eventType: s.eventType, teamName: s.teamName, teamSize: s.teamSize,
+        experienceLevel: s.experienceLevel, dietaryPref: s.dietaryPref, track: s.track,
+        posterTopic: s.posterTopic, accommodation: s.accommodation, transport: s.transport,
+      };
+    }
 
     function render() {
       if (s.status === 'success') {
@@ -55,8 +95,9 @@
       }
 
       return '<div class="page-stack">'
-        + '<div class="section-heading"><div><span class="eyebrow">Event registration</span><h2>Register for: Zero Origin Hackathon</h2></div>'
-        + ui.badge('Registration open', 'green') + '</div>'
+        + '<div class="section-heading"><div><span class="eyebrow">Event registration</span><h2>'
+        + (s.eventTitle ? 'Register for: ' + WM.esc(s.eventTitle) : 'Register for an event') + '</h2></div>'
+        + (s.eventStatus ? ui.badge(s.eventStatus, s.eventTone) : '') + '</div>'
         + F.formSection({ title: 'Event type', eyebrow: 'Format', children:
           F.radioGroup({ id: 'reg-type', label: 'Select your event type', value: s.eventType, columns: 4, options: [
             { value: 'Hackathon', label: 'Hackathon', detail: 'Team competition' },
@@ -143,18 +184,37 @@
       document.querySelectorAll('[data-action]').forEach(function (b) {
         b.addEventListener('click', function () {
           const action = b.getAttribute('data-action');
-          if (action === 'save') { s.loading = true; draw(); window.setTimeout(function () { s.loading = false; s.status = 'success'; s.statusMsg = 'Draft saved. You can return to complete your registration later.'; draw(); }, 600); }
-          else if (action === 'submit') {
+          if (action === 'save') {
+            s.loading = true; s.status = 'loading'; draw();
+            global.WMApi.registrations.create(Object.assign(payload(), { status: 'Draft' })).then(function () {
+              s.loading = false; s.status = 'success';
+              s.statusMsg = 'Draft saved. You can return to complete your registration later.';
+              draw();
+            }, function (err) {
+              s.loading = false; s.status = 'error';
+              s.statusMsg = (err && err.message) || 'We could not save your draft. Please try again.';
+              draw();
+            });
+          } else if (action === 'submit') {
             const e = validate(); s.errors = e;
             if (Object.keys(e).length) { draw(); return; }
             s.loading = true; s.status = 'loading'; draw();
-            window.setTimeout(function () { s.loading = false; s.status = 'success'; s.statusMsg = 'Registration confirmed! A confirmation email has been sent.'; draw(); }, 900);
+            global.WMApi.registrations.create(payload()).then(function (data) {
+              s.loading = false; s.status = 'success';
+              const code = data && (data.ticketCode || data.ticket_code);
+              s.statusMsg = 'Registration confirmed!' + (code ? ' Your ticket code is ' + code + '.' : ' A confirmation email has been sent.');
+              draw();
+            }, function (err) {
+              s.loading = false; s.status = 'error';
+              s.statusMsg = (err && err.message) || 'We could not complete your registration. Please try again.';
+              draw();
+            });
           }
         });
       });
     }
 
-    WM.page({ route: '/forms/event-registration', render: render, mounted: function () { wire(); } });
+    WM.page({ route: '/forms/event-registration', render: render, mounted: function () { wire(); }, load: load });
   }
 
   global.WMPages = global.WMPages || {};

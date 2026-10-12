@@ -34,6 +34,7 @@
 
   /* ===================== Login ===================== */
   function login() {
+    const DEMO_EMAIL = (global.WM_CONFIG && global.WM_CONFIG.DEMO_EMAIL) || '';
     const state = { email: '', password: '', showPassword: false, errors: {}, loading: false, success: false, resetMessage: '' };
 
     function body() {
@@ -43,8 +44,8 @@
 
       if (state.success) {
         return heading + '<div class="auth-success"><div class="success-icon">' + ic('shield-check', 24) + '</div>'
-          + '<h3>You\u2019re ready to go.</h3>'
-          + '<p>This demo sign-in is complete. Continue to your workspace to explore WayMark.</p>'
+          + '<h3>You\u2019re signed in.</h3>'
+          + '<p>Continue to your workspace to pick up where you left off.</p>'
           + '<a class="button button-primary" href="index.html">Continue to workspace ' + ic('arrow-right', 16) + '</a></div>';
       }
 
@@ -64,8 +65,8 @@
         + (state.resetMessage ? '<div class="form-info">' + esc(state.resetMessage) + '</div>' : '')
         + '<button class="button button-primary auth-submit" type="submit">'
         + (state.loading ? '<span class="loading-spinner"></span> Signing in...' : 'Sign in ' + ic('arrow-right', 16)) + '</button>'
-        + '<div class="auth-divider"><span>or</span></div>'
-        + '<button type="button" class="demo-button" id="demo-btn">Use demo account <span>maya@waymark.events</span></button>'
+        + (DEMO_EMAIL ? '<div class="auth-divider"><span>or</span></div>'
+        + '<button type="button" class="demo-button" id="demo-btn">Use demo account <span>' + esc(DEMO_EMAIL) + '</span></button>' : '')
         + '</form>'
         + '<div class="auth-switch">New to WayMark? <a href="signup.html">Create an account ' + ic('arrow-right', 14) + '</a></div>'
         + (state.resetMessage === '' ? '<button class="auth-help" id="help-btn">Need help signing in?</button>' : '');
@@ -90,12 +91,13 @@
       const pwToggle = root.querySelector('#pw-toggle');
       if (pwToggle) pwToggle.addEventListener('click', function () { state.showPassword = !state.showPassword; draw(); });
       const demo = root.querySelector('#demo-btn');
-      if (demo) demo.addEventListener('click', function () { state.email = 'maya@waymark.events'; state.password = 'waymark-demo'; state.errors = {}; draw(); });
-      const help = root.querySelector('#help-btn');
-      if (help) help.addEventListener('click', function () {
-        state.resetMessage = 'Password reset is ready for the next authentication step. You can continue exploring the frontend for now.';
-        draw();
+      if (demo) demo.addEventListener('click', function () {
+        state.email = (global.WM_CONFIG && global.WM_CONFIG.DEMO_EMAIL) || '';
+        state.password = (global.WM_CONFIG && global.WM_CONFIG.DEMO_PASSWORD) || '';
+        state.errors = {}; draw();
       });
+      const help = root.querySelector('#help-btn');
+      if (help) help.addEventListener('click', function () { window.location.href = 'password-reset.html'; });
       const form = root.querySelector('#login-form');
       if (form) form.addEventListener('submit', function (e) {
         e.preventDefault();
@@ -104,7 +106,13 @@
         state.errors = next;
         if (Object.keys(next).length) { draw(); return; }
         state.loading = true; draw();
-        window.setTimeout(function () { state.loading = false; state.success = true; draw(); }, 850);
+        WM.Auth.login(state.email, state.password).then(function () {
+          state.loading = false; state.success = true; draw();
+        }, function (err) {
+          state.loading = false;
+          state.errors = { form: (err && err.message) || 'Sign in failed. Please try again.' };
+          draw();
+        });
       });
     }
 
@@ -209,17 +217,21 @@
       s.errors = errs;
       if (Object.keys(errs).length) { draw(); return; }
       s.loading = true; s.status = 'loading'; draw();
-      window.setTimeout(function () {
+      WM.Auth.signup({ name: s.fullName, email: s.email, password: s.password, role: s.role }).then(function () {
         s.loading = false; s.status = 'success'; s.success = true;
         s.statusMsg = 'Account created successfully. You can now sign in.';
         draw();
-      }, 900);
+      }, function (err) {
+        s.loading = false; s.status = 'error';
+        s.statusMsg = (err && err.message) || 'We could not create your account. Please try again.';
+        draw();
+      });
     });
   }
 
   /* ===================== Password reset ===================== */
   function passwordReset() {
-    const state = { email: '', sent: false };
+    const state = { email: '', sent: false, loading: false, error: '' };
 
     function body() {
       const heading = '<div class="auth-heading"><div class="auth-mobile-brand">' + brand() + '</div>'
@@ -232,7 +244,9 @@
         : '<form class="auth-form" id="reset-form"><div class="field-group"><label for="reset-email">Email address</label>'
           + '<div class="auth-input">' + ic('mail', 17)
           + '<input id="reset-email" type="email" value="' + esc(state.email) + '" placeholder="you@example.com" required /></div></div>'
-          + '<button class="button button-primary auth-submit" type="submit">Send reset link ' + ic('arrow-right', 16) + '</button></form>';
+          + (state.error ? '<div class="form-error">' + esc(state.error) + '</div>' : '')
+          + '<button class="button button-primary auth-submit" type="submit"' + (state.loading ? ' disabled' : '') + '>'
+          + (state.loading ? '<span class="loading-spinner"></span> Sending...' : 'Send reset link ' + ic('arrow-right', 16)) + '</button></form>';
       return heading + content
         + '<div class="auth-switch">Remembered your password? <a href="login.html">Sign in ' + ic('arrow-right', 14) + '</a></div>';
     }
@@ -240,9 +254,20 @@
     function draw() { mountShell(body(), bind); }
     function bind(root) {
       const input = root.querySelector('#reset-email');
-      if (input) input.addEventListener('input', function () { state.email = input.value; });
+      if (input) input.addEventListener('input', function () { state.email = input.value; state.error = ''; });
       const f = root.querySelector('#reset-form');
-      if (f) f.addEventListener('submit', function (e) { e.preventDefault(); if (state.email) { state.sent = true; draw(); } });
+      if (f) f.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!state.email) return;
+        state.loading = true; state.error = ''; draw();
+        global.WMApi.auth.requestPasswordReset(state.email).then(function () {
+          state.loading = false; state.sent = true; draw();
+        }, function (err) {
+          state.loading = false;
+          state.error = (err && err.message) || 'We could not send the reset link. Please try again.';
+          draw();
+        });
+      });
     }
     draw();
   }

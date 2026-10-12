@@ -2,31 +2,83 @@
 (function (global) {
   'use strict';
   const WM = global.WM;
+  const D = global.WMData;
   const ic = WM.ic, F = WM.forms, ui = WM.ui;
 
+  function asList(value, names) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') {
+      const keys = (names || []).concat(['items', 'data', 'results']);
+      for (let i = 0; i < keys.length; i += 1) {
+        if (Array.isArray(value[keys[i]])) return value[keys[i]];
+      }
+    }
+    return [];
+  }
+
+  function eventTitles() {
+    const titles = (D.events || []).map(function (e) { return e.title; });
+    return titles.length ? titles : ['No events available'];
+  }
+
+  function findEvent(title) {
+    return (D.events || []).find(function (e) { return e.title === title; }) || null;
+  }
+
+  /* ===================== Attendance ===================== */
   function attendanceForm() {
-    const ROSTER = [
-      { id: 'P001', name: 'Maya Chen', email: 'maya@waymark.events' },
-      { id: 'P002', name: 'Jordan Lee', email: 'jordan@waymark.events' },
-      { id: 'P003', name: 'Ari Kim', email: 'ari@waymark.events' },
-      { id: 'P004', name: 'Samira Okafor', email: 'samira@waymark.events' },
-      { id: 'P005', name: 'Theo Martin', email: 'theo@waymark.events' },
-    ];
     const s = {
-      mode: 'manual', event: 'Zero Origin Hackathon', participantId: '', session: 'Main event',
-      checkedIn: [], status: 'idle', statusMsg: '', loading: false,
+      mode: 'manual', eventId: '', event: '', participantId: '', session: 'Main event',
+      roster: [], status: 'idle', statusMsg: '', loading: false,
     };
     let statusTimer = null;
 
+    function normalizeRoster(value) {
+      return asList(value, ['roster', 'participants', 'attendance']).map(function (r) {
+        const checked = !!r.checkedIn || r.status === 'Checked in' || r.attendanceStatus === 'Checked in';
+        return {
+          id: String(r.id || r.userId || r.participantId || ''),
+          name: r.name || r.participantName || '',
+          email: r.email || r.participantEmail || '',
+          checkedIn: checked,
+        };
+      });
+    }
+
+    function loadRoster(eventId) {
+      if (!eventId) { s.roster = []; return Promise.resolve(); }
+      return global.WMApi.events.roster(eventId).then(function (data) {
+        s.roster = normalizeRoster(data);
+      }, function () {
+        s.roster = D.attendanceLogs.filter(function (l) {
+          return String(l.eventId) === String(eventId);
+        }).map(function (l) {
+          return {
+            id: String(l.userId || l.id), name: l.participantName || '', email: l.participantEmail || '',
+            checkedIn: l.status === 'Checked in',
+          };
+        });
+      });
+    }
+
+    function load() {
+      return D.ready().then(function () {
+        const first = D.events[0];
+        if (first) { s.eventId = first.id; s.event = first.title; }
+        return loadRoster(s.eventId);
+      });
+    }
+
     function render() {
-      const rows = ROSTER.map(function (r) {
-        const on = s.checkedIn.indexOf(r.id) !== -1;
+      const checkedCount = s.roster.filter(function (r) { return r.checkedIn; }).length;
+      const rows = s.roster.map(function (r) {
+        const on = r.checkedIn;
         return '<div class="attendance-row' + (on ? ' checked-in' : '') + '">'
-          + '<div class="attendance-id">' + r.id + '</div>'
+          + '<div class="attendance-id">' + WM.esc(r.id) + '</div>'
           + '<div class="attendance-name"><strong>' + WM.esc(r.name) + '</strong><span>' + WM.esc(r.email) + '</span></div>'
           + ui.badge(on ? 'Checked in' : 'Not checked in', on ? 'green' : 'slate')
-          + '<button class="button button-' + (on ? 'secondary' : 'primary') + ' attendance-toggle" data-checkin="' + r.id + '">' + (on ? 'Undo' : 'Check in') + '</button></div>';
-      }).join('');
+          + '<button class="button button-' + (on ? 'secondary' : 'primary') + ' attendance-toggle" data-checkin="' + WM.esc(r.id) + '">' + (on ? 'Undo' : 'Check in') + '</button></div>';
+      }).join('') || '<p class="lede">No participants on this roster yet.</p>';
 
       const modeSection = s.mode === 'manual'
         ? F.formSection({ title: 'Manual check-in', eyebrow: 'Enter ID', children:
@@ -41,7 +93,7 @@
         + ui.sectionHeading({ eyebrow: 'Event operations', title: 'Attendance check-in' })
         + F.formSection({ title: 'Session selection', eyebrow: 'Setup', children:
           '<div class="form-grid-2">'
-          + F.selectInput({ id: 'at-event', label: 'Event', value: s.event, options: ['Zero Origin Hackathon', 'Designing for Civic Impact', 'Campus Sustainability Summit'] })
+          + F.selectInput({ id: 'at-event', label: 'Event', value: s.event, options: eventTitles() })
           + F.selectInput({ id: 'at-session', label: 'Session', value: s.session, options: ['Main event', 'Opening ceremony', 'Workshop session A', 'Workshop session B', 'Closing ceremony'] })
           + '</div>' })
         + F.formSection({ title: 'Check-in method', eyebrow: 'Mode', children:
@@ -49,7 +101,7 @@
             { value: 'manual', label: 'Manual check-in', detail: 'Search by ID or name' },
             { value: 'qr', label: 'QR code scan', detail: 'Scan participant QR code' }] }) })
         + modeSection
-        + F.formSection({ title: 'Attendance roster', eyebrow: s.checkedIn.length + '/' + ROSTER.length + ' checked in', children:
+        + F.formSection({ title: 'Attendance roster', eyebrow: checkedCount + '/' + s.roster.length + ' checked in', children:
           '<div class="attendance-roster">' + rows + '</div>' })
         + '</div>';
     }
@@ -64,7 +116,12 @@
 
     function wire() {
       const ev = document.getElementById('at-event');
-      if (ev) ev.addEventListener('change', function () { s.event = ev.value; draw(); });
+      if (ev) ev.addEventListener('change', function () {
+        s.event = ev.value;
+        const match = findEvent(ev.value);
+        s.eventId = match ? match.id : '';
+        loadRoster(s.eventId).then(draw, draw);
+      });
       const se = document.getElementById('at-session');
       if (se) se.addEventListener('change', function () { s.session = se.value; draw(); });
       document.querySelectorAll('[data-radio]').forEach(function (b) {
@@ -75,36 +132,57 @@
       document.querySelectorAll('[data-checkin]').forEach(function (b) {
         b.addEventListener('click', function () {
           const id = b.getAttribute('data-checkin');
-          const wasIn = s.checkedIn.indexOf(id) !== -1;
-          s.checkedIn = wasIn ? s.checkedIn.filter(function (c) { return c !== id; }) : s.checkedIn.concat([id]);
-          const person = ROSTER.find(function (r) { return r.id === id; });
-          setTransient('success', person.name + ' checked ' + (wasIn ? 'out' : 'in') + '.');
+          const person = s.roster.find(function (r) { return r.id === id; });
+          const wasIn = !!(person && person.checkedIn);
+          const request = wasIn
+            ? global.WMApi.attendance.undo(id)
+            : global.WMApi.attendance.checkIn({ eventId: s.eventId, participantId: id, session: s.session });
+          request.then(function () {
+            if (person) person.checkedIn = !wasIn;
+            setTransient('success', (person ? person.name : id) + ' checked ' + (wasIn ? 'out' : 'in') + '.');
+          }, function (err) {
+            setTransient('error', (err && err.message) || 'Check-in failed. Please try again.');
+          });
         });
       });
       document.querySelectorAll('[data-action="manual"]').forEach(function (b) {
         b.addEventListener('click', function () {
-          if (!s.participantId.trim()) { s.status = 'error'; s.statusMsg = 'Enter a participant ID.'; draw(); return; }
-          const pidVal = s.participantId;
+          const pidVal = s.participantId.trim();
+          if (!pidVal) { s.status = 'error'; s.statusMsg = 'Enter a participant ID.'; draw(); return; }
           s.loading = true; draw();
-          window.setTimeout(function () {
+          global.WMApi.attendance.checkIn({ eventId: s.eventId, participantId: pidVal, session: s.session }).then(function () {
             s.loading = false;
-            if (s.checkedIn.indexOf(pidVal) === -1) { s.checkedIn = s.checkedIn.concat([pidVal]); s.status = 'success'; s.statusMsg = 'Participant ' + pidVal + ' checked in.'; }
-            else { s.status = 'error'; s.statusMsg = 'Participant ' + pidVal + ' already checked in.'; }
+            const person = s.roster.find(function (r) { return r.id === pidVal; });
+            if (person) person.checkedIn = true;
+            s.status = 'success'; s.statusMsg = 'Participant ' + pidVal + ' checked in.';
             s.participantId = ''; draw();
-          }, 500);
+          }, function (err) {
+            s.loading = false; s.status = 'error';
+            s.statusMsg = (err && err.message) || 'Check-in failed. Please try again.';
+            draw();
+          });
         });
       });
     }
 
-    WM.page({ route: '/forms/attendance', render: render, mounted: function () { wire(); } });
+    WM.page({ route: '/forms/attendance', render: render, mounted: function () { wire(); }, load: load });
   }
 
+  /* ===================== Feedback ===================== */
   function feedbackForm() {
     const s = {
-      event: 'Zero Origin Hackathon', overallRating: 0, contentRating: 0, organizationRating: 0,
+      eventId: '', event: '', overallRating: 0, contentRating: 0, organizationRating: 0,
       venueRating: 0, whatWorked: '', whatDidnt: '', wouldRecommend: '', attendAgain: true,
       anonymous: false, errors: {}, status: 'idle', statusMsg: '', loading: false,
     };
+
+    function load() {
+      return D.ready().then(function () {
+        const first = D.events[0];
+        if (first) { s.eventId = first.id; s.event = first.title; }
+        return null;
+      });
+    }
 
     function render() {
       if (s.status === 'success') {
@@ -124,7 +202,7 @@
       return '<div class="page-stack">'
         + ui.sectionHeading({ eyebrow: 'Post-event', title: 'Event feedback' })
         + F.formSection({ title: 'Event', eyebrow: 'Select', children:
-          F.selectInput({ id: 'fb-event', label: 'Which event are you reviewing?', value: s.event, options: ['Zero Origin Hackathon', 'Designing for Civic Impact', 'Campus Sustainability Summit', 'Frontend Futures Meetup'] }) })
+          F.selectInput({ id: 'fb-event', label: 'Which event are you reviewing?', value: s.event, options: eventTitles() }) })
         + F.formSection({ title: 'Ratings', eyebrow: 'Your experience', children:
           rating('Overall experience', 'fb-overall', s.overallRating, true, s.errors.overall)
           + rating('Content quality', 'fb-content', s.contentRating, false)
@@ -147,7 +225,12 @@
 
     function wire() {
       const ev = document.getElementById('fb-event');
-      if (ev) ev.addEventListener('change', function () { s.event = ev.value; draw(); });
+      if (ev) ev.addEventListener('change', function () {
+        s.event = ev.value;
+        const match = findEvent(ev.value);
+        s.eventId = match ? match.id : '';
+        draw();
+      });
       const ratings = { 'fb-overall': 'overallRating', 'fb-content': 'contentRating', 'fb-org': 'organizationRating', 'fb-venue': 'venueRating' };
       document.querySelectorAll('[data-score]').forEach(function (b) {
         b.addEventListener('click', function () {
@@ -180,27 +263,67 @@
           s.errors = e;
           if (Object.keys(e).length) { draw(); return; }
           s.loading = true; s.status = 'loading'; draw();
-          window.setTimeout(function () { s.loading = false; s.status = 'success'; s.statusMsg = 'Thank you! Your feedback has been submitted.'; draw(); }, 800);
+          global.WMApi.feedback.create({
+            eventId: s.eventId, overallRating: s.overallRating, contentRating: s.contentRating,
+            organizationRating: s.organizationRating, venueRating: s.venueRating,
+            whatWorked: s.whatWorked, whatDidnt: s.whatDidnt, wouldRecommend: s.wouldRecommend,
+            attendAgain: s.attendAgain, anonymous: s.anonymous,
+          }).then(function () {
+            s.loading = false; s.status = 'success';
+            s.statusMsg = 'Thank you! Your feedback has been submitted.';
+            draw();
+          }, function (err) {
+            s.loading = false; s.status = 'error';
+            s.statusMsg = (err && err.message) || 'We could not submit your feedback. Please try again.';
+            draw();
+          });
         });
       });
     }
 
-    WM.page({ route: '/forms/feedback', render: render, mounted: function () { wire(); } });
+    WM.page({ route: '/forms/feedback', render: render, mounted: function () { wire(); }, load: load });
   }
 
+  /* ===================== Certificate issuing ===================== */
   function certificateForm() {
-    const ELIGIBLE = [
-      { id: 'P001', name: 'Maya Chen', attended: true, score: 85 },
-      { id: 'P002', name: 'Jordan Lee', attended: true, score: 78 },
-      { id: 'P003', name: 'Ari Kim', attended: true, score: 92 },
-      { id: 'P004', name: 'Samira Okafor', attended: false, score: 0 },
-      { id: 'P005', name: 'Theo Martin', attended: true, score: 65 },
-    ];
     const s = {
-      event: 'Zero Origin Hackathon', template: 'Standard', title: 'Certificate of Participation',
-      issuer: 'WayMark Platform', signatory: 'Dr. Sarah Lin', criteria: 'attended', minScore: '0',
-      recipients: [], status: 'idle', statusMsg: '', loading: false, issued: false,
+      eventId: '', event: '', template: 'Standard', title: 'Certificate of Participation',
+      issuer: 'WayMark Platform', signatory: '', criteria: 'attended', minScore: '0',
+      people: [], recipients: [], status: 'idle', statusMsg: '', loading: false, issued: false,
     };
+
+    function normalizePeople(value) {
+      return asList(value, ['participants', 'roster', 'eligible']).map(function (p) {
+        const attended = !!p.attended || !!p.checkedIn || p.status === 'Checked in' || p.attendanceStatus === 'Checked in';
+        return {
+          id: String(p.id || p.userId || p.participantId || ''),
+          name: p.name || p.participantName || '',
+          attended: attended,
+          score: Number(p.score || 0),
+        };
+      });
+    }
+
+    function load() {
+      return D.ready().then(function () {
+        const first = D.events[0];
+        if (first) { s.eventId = first.id; s.event = first.title; }
+        if (!s.signatory) {
+          const user = WM.Auth.getUser();
+          s.signatory = user && user.name ? user.name : '';
+        }
+        if (!s.eventId) { s.people = []; return null; }
+        return global.WMApi.events.participants(s.eventId).then(function (data) {
+          s.people = normalizePeople(data);
+        }, function () {
+          return global.WMApi.events.roster(s.eventId).then(function (data) {
+            s.people = normalizePeople(data);
+          }, function () {
+            s.people = [];
+          });
+        });
+      });
+    }
 
     function render() {
       if (s.issued) {
@@ -210,21 +333,21 @@
           + '<button class="button button-secondary">' + ic('download', 15) + ' Download all</button>'
           + '<button class="button button-primary" data-action="issue-more">Issue more</button></div></div>';
       }
-      const filtered = s.criteria === 'attended' ? ELIGIBLE.filter(function (p) { return p.attended; })
-        : s.criteria === 'score' ? ELIGIBLE.filter(function (p) { return p.attended && p.score >= Number(s.minScore); })
-        : ELIGIBLE;
+      const filtered = s.criteria === 'attended' ? s.people.filter(function (p) { return p.attended; })
+        : s.criteria === 'score' ? s.people.filter(function (p) { return p.attended && p.score >= Number(s.minScore); })
+        : s.people;
       const rows = filtered.map(function (p) {
         const on = s.recipients.indexOf(p.id) !== -1;
         return '<div class="cert-recipient-row' + (on ? ' selected' : '') + '">'
           + F.checkboxField({ id: 'ct-' + p.id, label: '', checked: on })
-          + '<div class="cert-recipient-info"><strong>' + WM.esc(p.name) + '</strong><span>' + p.id + ' \u00b7 ' + (p.attended ? ('Score: ' + p.score) : 'Did not attend') + '</span></div>'
+          + '<div class="cert-recipient-info"><strong>' + WM.esc(p.name) + '</strong><span>' + WM.esc(p.id) + ' \u00b7 ' + (p.attended ? ('Score: ' + p.score) : 'Did not attend') + '</span></div>'
           + (p.attended ? ui.badge('Eligible', 'green') : ui.badge('Not eligible', 'slate')) + '</div>';
-      }).join('');
+      }).join('') || '<p class="lede">No participants available for this event yet.</p>';
       return '<div class="page-stack">'
         + ui.sectionHeading({ eyebrow: 'Certificates', title: 'Issue certificates' })
         + F.formSection({ title: 'Certificate details', eyebrow: 'Template', children:
           '<div class="form-grid-2">'
-          + F.selectInput({ id: 'ct-event', label: 'Event', value: s.event, options: ['Zero Origin Hackathon', 'Designing for Civic Impact', 'Campus Sustainability Summit'] })
+          + F.selectInput({ id: 'ct-event', label: 'Event', value: s.event, options: eventTitles() })
           + F.selectInput({ id: 'ct-template', label: 'Template', value: s.template, options: ['Standard', 'Achievement', 'Participation', 'Excellence', 'Completion'] })
           + F.textField({ id: 'ct-title', label: 'Certificate title', value: s.title })
           + F.textField({ id: 'ct-issuer', label: 'Issuing organization', value: s.issuer })
@@ -252,6 +375,17 @@
         if (el) el.addEventListener('change', function () { s[sel[id]] = el.value; draw(); });
         if (el) el.addEventListener('input', function () { s[sel[id]] = el.value; });
       });
+      const ev = document.getElementById('ct-event');
+      if (ev) ev.addEventListener('change', function () {
+        const match = findEvent(ev.value);
+        s.eventId = match ? match.id : '';
+        s.recipients = [];
+        if (s.eventId) {
+          global.WMApi.events.participants(s.eventId).then(function (data) {
+            s.people = normalizePeople(data); draw();
+          }, function () { s.people = []; draw(); });
+        } else { s.people = []; draw(); }
+      });
       document.querySelectorAll('[data-radio]').forEach(function (b) {
         b.addEventListener('click', function () { s.criteria = b.getAttribute('data-value'); s.recipients = []; draw(); });
       });
@@ -269,18 +403,32 @@
           if (action !== 'submit') return;
           if (s.recipients.length === 0) { s.status = 'error'; s.statusMsg = 'Select at least one recipient.'; draw(); return; }
           s.loading = true; s.status = 'loading'; draw();
-          window.setTimeout(function () { s.loading = false; s.status = 'success'; s.issued = true; s.statusMsg = s.recipients.length + ' certificate(s) issued successfully.'; draw(); }, 1000);
+          global.WMApi.certificates.issue({
+            eventId: s.eventId, template: s.template, title: s.title, issuer: s.issuer,
+            signatory: s.signatory, criteria: s.criteria, minScore: Number(s.minScore) || 0,
+            recipientIds: s.recipients,
+          }).then(function () {
+            s.loading = false; s.status = 'success'; s.issued = true;
+            s.statusMsg = s.recipients.length + ' certificate(s) issued successfully.';
+            draw();
+          }, function (err) {
+            s.loading = false; s.status = 'error';
+            s.statusMsg = (err && err.message) || 'We could not issue the certificates. Please try again.';
+            draw();
+          });
         });
       });
     }
 
-    WM.page({ route: '/forms/certificates', render: render, mounted: function () { wire(); } });
+    WM.page({ route: '/forms/certificates', render: render, mounted: function () { wire(); }, load: load });
   }
 
+  /* ===================== Certificate verification ===================== */
   function certificateVerify() {
-    const s = { certId: '', result: 'idle', loading: false };
+    const s = { certId: '', result: 'idle', cert: null, loading: false };
 
     function render() {
+      const cert = s.cert || {};
       return '<div class="page-stack">'
         + ui.sectionHeading({ eyebrow: 'Certificates', title: 'Verify a certificate' })
         + F.formSection({ title: 'Certificate lookup', eyebrow: 'Search', children:
@@ -291,10 +439,10 @@
           ? '<div class="panel cert-verify-result valid"><div class="success-icon">' + ic('check', 24) + '</div>'
             + '<h3>Certificate verified</h3>'
             + '<div class="cert-verify-details">'
-            + '<div><span class="eyebrow">Holder</span><strong>Maya Chen</strong></div>'
-            + '<div><span class="eyebrow">Event</span><strong>Zero Origin Hackathon</strong></div>'
-            + '<div><span class="eyebrow">Date</span><strong>October 18, 2026</strong></div>'
-            + '<div><span class="eyebrow">Status</span><strong>Valid</strong></div></div>'
+            + '<div><span class="eyebrow">Holder</span><strong>' + WM.esc(cert.recipientName || cert.holder || '\u2014') + '</strong></div>'
+            + '<div><span class="eyebrow">Event</span><strong>' + WM.esc(cert.eventTitle || cert.event || '\u2014') + '</strong></div>'
+            + '<div><span class="eyebrow">Date</span><strong>' + WM.esc(cert.issueDate || cert.date || '\u2014') + '</strong></div>'
+            + '<div><span class="eyebrow">Status</span><strong>' + WM.esc(cert.status || 'Valid') + '</strong></div></div>'
             + '<button class="button button-secondary">' + ic('download', 15) + ' Download copy</button></div>'
           : '')
         + (s.result === 'invalid'
@@ -312,8 +460,14 @@
       const btn = document.querySelector('[data-action="verify"]');
       if (btn) btn.addEventListener('click', function () {
         if (!s.certId.trim()) return;
-        s.loading = true; s.result = 'idle'; draw();
-        window.setTimeout(function () { s.loading = false; s.result = s.certId.toUpperCase() === 'WM-2026-001' ? 'valid' : 'invalid'; draw(); }, 700);
+        s.loading = true; s.result = 'idle'; s.cert = null; draw();
+        global.WMApi.certificates.verify(s.certId.trim()).then(function (data) {
+          s.loading = false; s.result = 'valid';
+          s.cert = (data && (data.certificate || data)) || {};
+          draw();
+        }, function () {
+          s.loading = false; s.result = 'invalid'; draw();
+        });
       });
     }
 

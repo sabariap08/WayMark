@@ -12,48 +12,85 @@
   const AUTH = {
     STORAGE_KEY_USER: 'waymark_user',
     STORAGE_KEY_ROLE: 'waymark_role',
+
+    roleKey(role) {
+      const r = String(role || '').toLowerCase();
+      if (r === 'host' || r === 'event host') return 'host';
+      if (r === 'jury' || r === 'jury member') return 'jury';
+      if (r === 'admin' || r === 'administrator') return 'admin';
+      return 'participant';
+    },
+
+    isAuthenticated() {
+      return !!(global.WMApi && global.WMApi.getToken());
+    },
+
     getUser() {
       const saved = localStorage.getItem(this.STORAGE_KEY_USER);
-      if (saved) {
-        try { return JSON.parse(saved); } catch (e) { return D.mockUsers[0]; }
-      }
-      return D.mockUsers[0];
+      if (!saved) return null;
+      try { return JSON.parse(saved); } catch (e) { return null; }
     },
+
     getRole() {
       return localStorage.getItem(this.STORAGE_KEY_ROLE) || 'participant';
     },
+
     setUser(user) {
       if (user) localStorage.setItem(this.STORAGE_KEY_USER, JSON.stringify(user));
       else localStorage.removeItem(this.STORAGE_KEY_USER);
     },
+
     setRole(role) {
       localStorage.setItem(this.STORAGE_KEY_ROLE, role);
+      if (global.WMData) global.WMData.reset();
     },
-    login(email) {
-      const matched = D.mockUsers.find((u) => u.email.toLowerCase() === email.toLowerCase()) || {
-        id: 'usr-' + Date.now(), name: email.split('@')[0], email: email, role: 'Participant',
-        status: 'Active', eventsCount: 0, joinedDate: 'Just now',
-      };
-      const mappedRole = matched.role === 'Host' ? 'host' : matched.role === 'Jury' ? 'jury'
-        : matched.role === 'Administrator' ? 'admin' : 'participant';
-      this.setUser(matched);
-      this.setRole(mappedRole);
-      return true;
+
+    applyUser(user) {
+      if (!user) return null;
+      this.setUser(user);
+      this.setRole(this.roleKey(user.role));
+      return user;
     },
-    signup(fullName, email, selectedRole) {
-      const mappedRole = selectedRole === 'host' ? 'host' : selectedRole === 'jury' ? 'jury'
-        : selectedRole === 'admin' ? 'admin' : 'participant';
-      const newUser = {
-        id: 'usr-' + Date.now(), name: fullName, email: email,
-        role: selectedRole === 'host' ? 'Host' : selectedRole === 'jury' ? 'Jury'
-          : selectedRole === 'admin' ? 'Administrator' : 'Participant',
-        status: 'Active', eventsCount: 0, joinedDate: 'Just now',
-      };
-      this.setUser(newUser);
-      this.setRole(mappedRole);
-      return true;
+
+    fetchUser() {
+      const self = this;
+      return global.WMApi.auth.me().then(function (data) {
+        const user = (data && (data.user || data.profile)) || data;
+        return self.applyUser(user);
+      });
     },
+
+    login(email, password) {
+      const self = this;
+      return global.WMApi.auth.login(email, password).then(function (data) {
+        const user = data && (data.user || data.profile);
+        if (user) return self.applyUser(user);
+        return self.fetchUser();
+      });
+    },
+
+    signup(payload) {
+      return global.WMApi.auth.signup(payload);
+    },
+
+    requireAuth() {
+      if (global.WM_CONFIG && global.WM_CONFIG.REQUIRE_AUTH === false) return true;
+      if (this.isAuthenticated()) return true;
+      window.location.href = 'login.html';
+      return false;
+    },
+
     logout() {
+      const self = this;
+      const done = function () {
+        self.setUser(null);
+        localStorage.removeItem(self.STORAGE_KEY_ROLE);
+        if (global.WMData) global.WMData.reset();
+      };
+      return global.WMApi.auth.logout().then(done, done);
+    },
+
+    clearLocal() {
       localStorage.removeItem(this.STORAGE_KEY_USER);
       localStorage.removeItem(this.STORAGE_KEY_ROLE);
     },
@@ -157,9 +194,10 @@
    * ------------------------------------------------------------------ */
   function barChart(data, height) {
     height = height || 180;
-    const max = Math.max.apply(null, data.map((d) => d.value));
+    if (!data || !data.length) return '<p class="lede">No data yet.</p>';
+    const max = Math.max.apply(null, data.map((d) => d.value || 0)) || 1;
     const bars = data.map((point) => {
-      const pct = Math.round((point.value / max) * 100);
+      const pct = Math.round(((point.value || 0) / max) * 100);
       return '<div class="chart-bar-col"><div class="chart-bar-track">'
         + '<div class="chart-bar-fill" style="height:' + pct + '%"><span class="chart-bar-value">' + point.value + '</span></div>'
         + '</div><span class="chart-bar-label">' + esc(point.label) + '</span></div>';
@@ -169,11 +207,13 @@
 
   function lineChart(data, height) {
     height = height || 180;
-    const max = Math.max.apply(null, data.map((d) => d.value));
-    const min = Math.min.apply(null, data.map((d) => d.value)) * 0.6;
+    if (!data || !data.length) return '<p class="lede">No data yet.</p>';
+    const values = data.map((d) => d.value || 0);
+    const max = Math.max.apply(null, values);
+    const min = Math.min.apply(null, values) * 0.6;
     const range = (max - min) || 1;
     const w = 520, h = height, padX = 30, padY = 20;
-    const stepX = (w - padX * 2) / (data.length - 1);
+    const stepX = (w - padX * 2) / ((data.length - 1) || 1);
     const points = data.map((d, i) => {
       const x = padX + i * stepX;
       const y = padY + (1 - (d.value - min) / range) * (h - padY * 2);
@@ -196,13 +236,15 @@
 
   function donutChart(data, size) {
     size = size || 160;
-    const total = data.reduce((sum, d) => sum + d.value, 0);
+    if (!data || !data.length) return '<p class="lede">No data yet.</p>';
+    const total = data.reduce((sum, d) => sum + (d.value || 0), 0);
+    const safeTotal = total || 1;
     const radius = size / 2 - 14;
     const center = size / 2;
     let offset = 0;
     const circumference = 2 * Math.PI * radius;
     const segments = data.map((d) => {
-      const portion = d.value / total;
+      const portion = (d.value || 0) / safeTotal;
       const dash = portion * circumference;
       const seg = '<circle cx="' + center + '" cy="' + center + '" r="' + radius + '" fill="none" stroke="' + d.color
         + '" stroke-width="18" stroke-dasharray="' + dash + ' ' + (circumference - dash) + '" stroke-dashoffset="' + (-offset)
@@ -448,7 +490,11 @@
   }
 
   function createEventModalHTML() {
-    const types = D.eventTypes.map((t, index) => {
+    const eventTypes = (D.eventTypes && D.eventTypes.length)
+      ? D.eventTypes
+      : (D.eventCategories || []).filter(function (c) { return c !== 'All categories'; })
+        .map(function (c) { return [c, 'Start from a template', 'type-slate']; });
+    const types = eventTypes.map((t, index) => {
       const icons = ['zap', 'users', 'calendar-days', 'sparkles'];
       return '<button data-create-type="' + esc(t[0]) + '"><span class="type-icon ' + t[2] + '">'
         + ic(icons[index], 18) + '</span><strong>' + esc(t[0]) + '</strong><small>' + esc(t[1]) + '</small></button>';
@@ -514,8 +560,8 @@
 
     const signout = document.getElementById('signout-btn');
     if (signout) signout.addEventListener('click', function () {
-      AUTH.logout();
-      window.location.href = 'login.html';
+      const done = function () { window.location.href = 'login.html'; };
+      AUTH.logout().then(done, done);
     });
 
     const createBtn = document.getElementById('create-event-btn');
@@ -530,6 +576,8 @@
     if (continueEl) { closeModal(); window.location.href = 'forms-host-event.html'; return; }
     const typeEl = e.target.closest('[data-create-type]');
     if (typeEl) { closeModal(); window.location.href = 'forms-host-event.html'; return; }
+    const retryEl = e.target.closest('[data-retry-page]');
+    if (retryEl) { WM.reload(); return; }
   });
 
   WM.layout = renderLayout;
@@ -541,26 +589,64 @@
    * Page mount                                                          *
    * ------------------------------------------------------------------ */
   let currentPage = null;
+  const CONFIG = global.WM_CONFIG || {};
 
   WM.reload = function () { if (currentPage) WM.page(currentPage); };
 
   WM.page = function (config) {
     currentPage = config;
     const root = document.getElementById('app');
-    const content = config.render();
-    if (config.requiresLayout === false) {
-      root.innerHTML = content;
-    } else {
-      root.innerHTML = renderLayout(config.route, content);
-      bindLayout();
+    const usesLayout = config.requiresLayout !== false;
+
+    if (usesLayout && CONFIG.REQUIRE_AUTH !== false && !AUTH.isAuthenticated()) {
+      window.location.href = 'login.html';
+      return;
     }
-    refreshIcons();
-    if (config.mounted) {
-      config.mounted({
-        content: document.getElementById('page-content') || root,
-        refresh: function () { WM.page(config); },
+
+    function paint() {
+      const content = config.render();
+      if (usesLayout) {
+        root.innerHTML = renderLayout(config.route, content);
+        bindLayout();
+      } else {
+        root.innerHTML = content;
+      }
+      refreshIcons();
+      if (config.mounted) {
+        config.mounted({
+          content: document.getElementById('page-content') || root,
+          refresh: function () { WM.page(config); },
+        });
+      }
+    }
+
+    if (typeof config.load === 'function') {
+      const loading = '<div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:72px 16px;color:#6b7c76">'
+        + '<span class="loading-spinner"></span><span>Loading\u2026</span></div>';
+      if (usesLayout) {
+        root.innerHTML = renderLayout(config.route, loading);
+        bindLayout();
+      } else {
+        root.innerHTML = loading;
+      }
+      refreshIcons();
+      config.load().then(paint, function (err) {
+        const message = (err && err.message) ? err.message : 'This page could not be loaded.';
+        const errorHTML = '<div class="empty-view"><div class="empty-icon">' + ic('alert-circle', 22) + '</div>'
+          + '<h3>Something went wrong</h3><p>' + esc(message) + '</p>'
+          + '<button class="button button-primary" data-retry-page>Try again</button></div>';
+        if (usesLayout) {
+          root.innerHTML = renderLayout(config.route, errorHTML);
+          bindLayout();
+        } else {
+          root.innerHTML = errorHTML;
+        }
+        refreshIcons();
       });
+      return;
     }
+
+    paint();
   };
 
   // Re-render only the page content (keeps layout + focus). Used by forms.

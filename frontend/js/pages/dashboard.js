@@ -57,9 +57,25 @@
         + ic('chevron-right', 16, 'class="row-chevron"') + '</button>';
     }).join('');
 
+    const notifTone = { reminder: 'amber', certificate: 'blue', approval: 'green', alert: 'red' };
+    const notifIcon = { reminder: 'clock-3', certificate: 'file-check-2', approval: 'check', alert: 'shield-alert' };
+    const notifItems = D.notifications.slice(0, 3).map(function (n) {
+      const tone = notifTone[n.type] || 'slate';
+      const icon = notifIcon[n.type] || 'bell';
+      return '<div class="activity-item"><span class="activity-icon activity-' + tone + '">' + ic(icon, 16) + '</span>'
+        + '<div><strong>' + esc(n.title) + '</strong><span>' + esc(n.message) + '</span></div>'
+        + '<time>' + esc(n.time) + '</time></div>';
+    }).join('') || '<p class="lede">No notifications yet.</p>';
+
+    const user = WM.Auth.getUser();
+    const firstName = user && user.name ? String(user.name).split(' ')[0] : 'there';
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
     return '<div class="page-stack">'
-      + '<div class="welcome-row"><div><div class="eyebrow">Saturday, October 10, 2026</div>'
-      + '<h1>Good morning, Maya.</h1><p class="lede">Here\u2019s what\u2019s happening across your events today.</p></div>'
+      + '<div class="welcome-row"><div><div class="eyebrow">' + esc(today) + '</div>'
+      + '<h1>' + esc(greeting) + ', ' + esc(firstName) + '.</h1><p class="lede">Here\u2019s what\u2019s happening across your events today.</p></div>'
       + '<button class="button button-primary">' + ic('plus', 17) + 'Create event</button></div>'
 
       + '<div class="stat-grid">' + statCards + '</div>'
@@ -92,10 +108,8 @@
       + '<div class="content-grid">'
       + '<section class="panel panel-wide">' + ui.sectionHeading({ eyebrow: 'Timeline', title: 'Recent activity', action: '<button class="button button-ghost">View all ' + ic('chevron-right', 16) + '</button>' }) + '<div class="activity-list">' + activity + '</div></section>'
       + '<section class="panel notification-panel">' + ui.sectionHeading({ eyebrow: 'Stay in the loop', title: 'Notifications', action: '<button class="icon-button">' + ic('activity', 19) + '</button>' }) + '<div class="activity-list">'
-      + '<div class="activity-item"><span class="activity-icon activity-green">' + ic('check', 16) + '</span><div><strong>Registration confirmed</strong><span>Zero Origin Hackathon</span></div><time>2h ago</time></div>'
-      + '<div class="activity-item"><span class="activity-icon activity-blue">' + ic('file-check-2', 16) + '</span><div><strong>Certificate ready</strong><span>Impact Lab · 2026</span></div><time>Yesterday</time></div>'
-      + '<div class="activity-item"><span class="activity-icon activity-amber">' + ic('clock-3', 16) + '</span><div><strong>Event starts soon</strong><span>Designing for Civic Impact</span></div><time>2d ago</time></div>'
-      + '</div><button class="button button-secondary full-button">Open notification inbox</button></section>'
+      + notifItems
+      + '</div><a class="button button-secondary full-button" href="notifications.html">Open notification inbox</a></section>'
       + '</div>'
 
       + '<section class="discover-banner"><div class="banner-mark">' + ic('sparkles', 23) + '</div>'
@@ -133,5 +147,5 @@
   }
 
   WM.__dashboardState = WM.__dashboardState || { query: '', category: D.eventCategories[0], status: D.eventStatuses[0] };
-  WM.page({ route: '/', render: render, mounted: mounted });
+  WM.page({ route: '/', render: render, mounted: mounted, load: function () { return D.ready(); } });
 })(window);

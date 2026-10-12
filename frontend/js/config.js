@@ -1,0 +1,23 @@
+/* WayMark frontend configuration.
+ *
+ * Point API_BASE_URL at your Flask backend. If Flask serves these static
+ * files itself (e.g. via send_from_directory or a static folder), the
+ * default same-origin path "/api" works without changes.
+ *
+ * Example Flask blueprints expected (all JSON):
+ *   /api/auth, /api/events, /api/registrations, /api/users, /api/notifications,
+ *   /api/audit-logs, /api/leaderboard, /api/meta, /api/dashboard, /api/jury,
+ *   /api/rubrics, /api/submissions, /api/scores, /api/attendance, /api/feedback,
+ *   /api/certificates
+ */
+window.WM_CONFIG = {
+  API_BASE_URL: '/api',
+  TOKEN_KEY: 'waymark_token',
+
+  // Set to false only if you want to browse pages without a Flask backend.
+  REQUIRE_AUTH: true,
+
+  // Optional: the login page shows a "Use demo account" shortcut when set.
+  DEMO_EMAIL: '',
+  DEMO_PASSWORD: '',
+};

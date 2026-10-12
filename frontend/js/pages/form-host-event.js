@@ -2,16 +2,71 @@
 (function (global) {
   'use strict';
   const WM = global.WM;
+  const D = global.WMData;
   const ic = WM.ic, F = WM.forms, ui = WM.ui;
+
+  const FALLBACK_CATEGORIES = ['Hackathon', 'Workshop', 'Conference', 'Community', 'Other'];
+  const FALLBACK_TYPES = ['Hackathon', 'Workshop', 'Conference', 'Community'];
 
   function hostEvent() {
     const s = {
-      mode: 'edit', title: '', eventType: '', category: 'Hackathon', description: '',
+      mode: 'edit', eventId: '', title: '', eventType: '', category: '', description: '',
       startDate: '', endDate: '', startTime: '', endTime: '', location: '', format: '',
-      capacity: '50', regDeadline: '', organizer: 'Maya Chen', contactEmail: 'maya@waymark.events',
+      capacity: '50', regDeadline: '', organizer: '', contactEmail: '',
       website: '', tags: '', certificates: true, juryEnabled: false, feedbackEnabled: true,
       attendanceRequired: true, agreeRules: false, errors: {}, status: 'idle', statusMsg: '', loading: false,
     };
+
+    const categories = function () {
+      const cats = (D.eventCategories || []).filter(function (c) { return c !== 'All categories'; });
+      return cats.length ? cats : FALLBACK_CATEGORIES;
+    };
+    const types = function () {
+      const list = (D.eventTypes || []).map(function (t) { return t[0]; });
+      return list.length ? list : FALLBACK_TYPES;
+    };
+
+    function load() {
+      return D.ready().then(function () {
+        const user = WM.Auth.getUser();
+        if (user) {
+          s.organizer = user.name || '';
+          s.contactEmail = user.email || '';
+        }
+        if (!s.category) s.category = categories()[0];
+        if (!s.contactEmail) {
+          return global.WMApi.users.me().then(function (data) {
+            const u = (data && (data.user || data.profile)) || data || {};
+            s.organizer = s.organizer || u.name || u.fullName || '';
+            s.contactEmail = s.contactEmail || u.email || '';
+          }, function () { /* optional */ });
+        }
+        return null;
+      });
+    }
+
+    function payload() {
+      return {
+        title: s.title.trim(),
+        type: s.eventType,
+        category: s.category,
+        description: s.description.trim(),
+        startDate: s.startDate, endDate: s.endDate, startTime: s.startTime, endTime: s.endTime,
+        location: s.location.trim(), format: s.format,
+        capacity: Number(s.capacity) || 0, regDeadline: s.regDeadline,
+        organizer: s.organizer.trim(), contactEmail: s.contactEmail.trim(), website: s.website.trim(),
+        tags: s.tags.split(',').map(function (t) { return t.trim(); }).filter(Boolean),
+        certificatesEnabled: s.certificates, juryEnabled: s.juryEnabled,
+        feedbackEnabled: s.feedbackEnabled, attendanceRequired: s.attendanceRequired,
+      };
+    }
+
+    function createdId(data) {
+      if (!data || typeof data !== 'object') return '';
+      if (data.id) return data.id;
+      if (data.event && data.event.id) return data.event.id;
+      return '';
+    }
 
     function eventPreview() {
       const row = function (label, val) { return '<div class="preview-row"><span>' + label + '</span><strong>' + (val || '\u2014') + '</strong></div>'; };
@@ -36,7 +91,7 @@
           + '<h3>Event submitted</h3><p>' + WM.esc(s.statusMsg) + '</p>'
           + '<div class="form-success-actions">'
           + '<button class="button button-secondary" data-action="reset">Create another</button>'
-          + '<button class="button button-primary">View in my events ' + ic('chevron-right', 16) + '</button>'
+          + '<a class="button button-primary" href="events.html">View in my events ' + ic('chevron-right', 16) + '</a>'
           + '</div></div>';
       }
 
@@ -59,11 +114,10 @@
         + F.formSection({ title: 'Event basics', eyebrow: 'Step 1', children:
           F.textField({ id: 'he-title', label: 'Event title', value: s.title, required: true, error: s.errors.title, placeholder: 'e.g. Zero Origin Hackathon' })
           + '<div class="form-grid-2">'
-          + F.radioGroup({ id: 'he-type', label: 'Event type', value: s.eventType, required: true, error: s.errors.eventType, columns: 4, options: [
-            { value: 'Hackathon', label: 'Hackathon' }, { value: 'Workshop', label: 'Workshop' },
-            { value: 'Conference', label: 'Conference' }, { value: 'Community', label: 'Community' }] })
+          + F.radioGroup({ id: 'he-type', label: 'Event type', value: s.eventType, required: true, error: s.errors.eventType, columns: 4, options:
+            types().map(function (t) { return { value: t, label: t }; }) })
           + '</div>'
-          + F.selectInput({ id: 'he-category', label: 'Category', value: s.category, options: ['Hackathon', 'Workshop', 'Conference', 'Community', 'Competition', 'Other'], icon: ic('tag', 16) })
+          + F.selectInput({ id: 'he-category', label: 'Category', value: s.category, options: categories(), icon: ic('tag', 16) })
           + F.textArea({ id: 'he-desc', label: 'Description', value: s.description, required: true, error: s.errors.description, rows: 4, maxLength: 1000, hint: 'Minimum 30 characters. This will be shown on the event page.', placeholder: 'Describe your event, goals, and what participants can expect...' }) })
         + F.formSection({ title: 'Date & time', eyebrow: 'Step 2', children:
           '<div class="form-grid-2">'
@@ -165,42 +219,98 @@
       document.querySelectorAll('[data-action]').forEach(function (b) {
         b.addEventListener('click', function () {
           const action = b.getAttribute('data-action');
-          if (action === 'reset') { s.status = 'idle'; s.statusMsg = ''; s.errors = {}; draw(); }
+          if (action === 'reset') { s.status = 'idle'; s.statusMsg = ''; s.errors = {}; s.eventId = ''; draw(); }
           else if (action === 'cancel') { s.mode = 'edit'; s.status = 'idle'; s.statusMsg = ''; draw(); }
-          else if (action === 'save') { s.loading = true; draw(); window.setTimeout(function () { s.loading = false; s.status = 'success'; s.statusMsg = 'Draft saved. You can continue editing later.'; draw(); }, 600); }
-          else if (action === 'submit') {
+          else if (action === 'save') {
+            s.loading = true; s.status = 'loading'; draw();
+            global.WMApi.events.create(Object.assign(payload(), { status: 'Draft' })).then(function (data) {
+              s.eventId = createdId(data) || s.eventId;
+              s.loading = false; s.status = 'success';
+              s.statusMsg = 'Draft saved. You can continue editing later.';
+              draw();
+            }, function (err) {
+              s.loading = false; s.status = 'error';
+              s.statusMsg = (err && err.message) || 'We could not save your draft. Please try again.';
+              draw();
+            });
+          } else if (action === 'submit') {
             const e = validate(); s.errors = e;
             if (Object.keys(e).length) { s.status = 'error'; s.statusMsg = 'Please fix the errors before submitting.'; draw(); return; }
             s.loading = true; s.status = 'loading'; draw();
-            window.setTimeout(function () { s.loading = false; s.status = 'success'; s.statusMsg = 'Event submitted for approval! Administrators will review it shortly.'; draw(); }, 1000);
+            let request;
+            if (s.eventId) {
+              request = global.WMApi.events.update(s.eventId, payload())
+                .then(function () { return global.WMApi.events.submit(s.eventId); });
+            } else {
+              request = global.WMApi.events.create(Object.assign(payload(), { status: 'Pending approval' }))
+                .then(function () { return null; });
+            }
+            request.then(function () {
+              s.loading = false; s.status = 'success';
+              s.statusMsg = 'Event submitted for approval! Administrators will review it shortly.';
+              draw();
+            }, function (err) {
+              s.loading = false; s.status = 'error';
+              s.statusMsg = (err && err.message) || 'We could not submit your event. Please try again.';
+              draw();
+            });
           }
         });
       });
     }
 
-    WM.page({ route: '/forms/host-event', render: render, mounted: function () { wire(); } });
+    WM.page({ route: '/forms/host-event', render: render, mounted: function () { wire(); }, load: load });
   }
 
   function approvalForm() {
     const s = {
+      eventId: '', eventTitle: '', eventOrganizer: '', eventCategory: '', eventDate: '', eventCapacity: '', eventSubmitted: '',
       decision: '', reviewNotes: '', conditions: '', publishImmediately: true, featured: false,
       notifyOrganizer: true, errors: {}, status: 'idle', statusMsg: '', loading: false,
     };
 
+    function load() {
+      return D.ready().then(function () {
+        const params = new URLSearchParams(global.location.search);
+        const id = params.get('event');
+        const pending = D.events.filter(function (e) {
+          const st = e.approvalStatus || '';
+          return st === 'Pending approval' || st === 'Changes requested' || st === 'Rejected' || st === 'Pending review';
+        });
+        const event = (id && D.events.find(function (e) { return String(e.id) === id; })) || pending[0] || null;
+        if (event) {
+          s.eventId = event.id;
+          s.eventTitle = event.title;
+          s.eventOrganizer = event.organizer || '';
+          s.eventCategory = event.category || '';
+          s.eventDate = event.date || '';
+          s.eventCapacity = event.capacityNum != null ? String(event.capacityNum) : '';
+          s.eventSubmitted = event.submittedAt || '';
+        }
+        return null;
+      });
+    }
+
     function render() {
+      if (!s.eventId) {
+        return '<div class="page-stack">'
+          + ui.sectionHeading({ eyebrow: 'Admin workspace', title: 'Event approval & publishing' })
+          + ui.emptyView({ title: 'Nothing to review', description: 'There are no events waiting for approval right now.', action: '<a class="button button-secondary" href="approvals.html">Back to approval queue</a>' })
+          + '</div>';
+      }
       if (s.status === 'success') {
         return '<div class="form-success-screen"><div class="success-icon">' + ic('check', 24) + '</div>'
           + '<h3>Decision recorded</h3><p>' + WM.esc(s.statusMsg) + '</p>'
           + '<button class="button button-secondary" data-action="reset">Review next event</button></div>';
       }
       return '<div class="page-stack">'
-        + ui.sectionHeading({ eyebrow: 'Admin workspace', title: 'Review: Campus Sustainability Summit' })
+        + ui.sectionHeading({ eyebrow: 'Admin workspace', title: 'Review: ' + s.eventTitle })
         + '<div class="form-approval-summary panel"><div class="approval-summary-row">'
-        + '<div class="approval-summary-item"><span class="eyebrow">Organizer</span><strong>Jordan Lee</strong></div>'
-        + '<div class="approval-summary-item"><span class="eyebrow">Type</span><strong>Conference</strong></div>'
-        + '<div class="approval-summary-item"><span class="eyebrow">Date</span><strong>Nov 02, 2026</strong></div>'
-        + '<div class="approval-summary-item"><span class="eyebrow">Capacity</span><strong>400</strong></div>'
-        + '<div class="approval-summary-item"><span class="eyebrow">Submitted</span><strong>3h ago</strong></div>'
+        + '<div class="approval-summary-item"><span class="eyebrow">Organizer</span><strong>' + WM.esc(s.eventOrganizer || '\u2014') + '</strong></div>'
+        + '<div class="approval-summary-item"><span class="eyebrow">Type</span><strong>' + WM.esc(s.eventCategory || '\u2014') + '</strong></div>'
+        + '<div class="approval-summary-item"><span class="eyebrow">Date</span><strong>' + WM.esc(s.eventDate || '\u2014') + '</strong></div>'
+        + '<div class="approval-summary-item"><span class="eyebrow">Capacity</span><strong>' + WM.esc(s.eventCapacity || '\u2014') + '</strong></div>'
+        + '<div class="approval-summary-item"><span class="eyebrow">Submitted</span><strong>' + WM.esc(s.eventSubmitted || '\u2014') + '</strong></div>'
         + '</div></div>'
         + F.formSection({ title: 'Review decision', eyebrow: 'Action', children:
           F.radioGroup({ id: 'ap-decision', label: 'Decision', value: s.decision, required: true, error: s.errors.decision, columns: 1, options: [
@@ -239,7 +349,7 @@
       document.querySelectorAll('[data-action]').forEach(function (b) {
         b.addEventListener('click', function () {
           const action = b.getAttribute('data-action');
-          if (action === 'reset') { s.status = 'idle'; s.decision = ''; s.reviewNotes = ''; draw(); }
+          if (action === 'reset') { s.status = 'idle'; s.decision = ''; s.reviewNotes = ''; s.conditions = ''; s.eventId = ''; draw(); }
           else if (action === 'cancel') { s.status = 'idle'; s.statusMsg = ''; draw(); }
           else if (action === 'submit') {
             const e = {};
@@ -249,17 +359,28 @@
             s.errors = e;
             if (Object.keys(e).length) { draw(); return; }
             s.loading = true; s.status = 'loading'; draw();
-            window.setTimeout(function () {
+            const approved = s.decision === 'approve' || s.decision === 'approve-with-conditions';
+            global.WMApi.events.approve(s.eventId, {
+              decision: approved ? 'approve' : s.decision,
+              conditions: s.conditions, notes: s.reviewNotes,
+              publishImmediately: s.publishImmediately, featured: s.featured, notifyOrganizer: s.notifyOrganizer,
+            }).then(function () {
               s.loading = false; s.status = 'success';
-              s.statusMsg = s.decision === 'reject' ? 'Event rejected. The organizer has been notified.' : 'Event approved and published successfully.';
+              s.statusMsg = s.decision === 'reject' ? 'Event rejected. The organizer has been notified.'
+                : s.decision === 'request-changes' ? 'Changes requested. The organizer has been notified.'
+                : 'Event approved and published successfully.';
               draw();
-            }, 900);
+            }, function (err) {
+              s.loading = false; s.status = 'error';
+              s.statusMsg = (err && err.message) || 'We could not record the decision. Please try again.';
+              draw();
+            });
           }
         });
       });
     }
 
-    WM.page({ route: '/forms/approval', render: render, mounted: function () { wire(); } });
+    WM.page({ route: '/forms/approval', render: render, mounted: function () { wire(); }, load: load });
   }
 
   global.WMPages = global.WMPages || {};

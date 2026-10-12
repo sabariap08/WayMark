@@ -4,12 +4,7 @@
   const WM = global.WM;
   const D = global.WMData;
   const ic = WM.ic, esc = WM.esc, ui = WM.ui;
-  const events = D.mockEvents;
-  const regs = D.mockRegistrations;
-  const notifs = D.mockNotifications;
-  const users = D.mockUsers;
-  const logs = D.mockAuditLogs;
-  const leaderboard = D.mockLeaderboard;
+  const LOAD = function () { return D.ready(); };
 
   function tableHead(labels) {
     return '<div class="table-head">' + labels.map(function (l) { return '<span>' + esc(l) + '</span>'; }).join('') + '</div>';
@@ -19,21 +14,22 @@
       + '<div><strong>' + esc(o.title) + '</strong><small>' + esc(o.category) + '</small></div></div>';
   }
   function eventInitials(title) {
-    return title.split(' ').map(function (w) { return w[0]; }).join('').slice(0, 2);
+    return String(title || '').split(' ').map(function (w) { return w[0]; }).join('').slice(0, 2);
   }
 
   /* ===================== Discover ===================== */
   function discover() {
-    const state = { query: '', category: 'All categories', selected: null };
+    const state = { query: '', category: 'All categories' };
 
     function render() {
+      const events = D.events;
       const filtered = events.filter(function (event) {
         const q = (event.title + ' ' + event.category + ' ' + event.location).toLowerCase();
         return q.indexOf(state.query.toLowerCase()) !== -1
           && (state.category === 'All categories' || event.category === state.category);
       });
 
-      const cards = filtered.map(function (event, i) {
+      const cards = filtered.map(function (event) {
         return '<article class="event-card" data-event="' + esc(event.id) + '">'
           + '<div class="card-art ' + event.color + '"><span>' + esc(event.initials) + '</span>' + ui.badge(event.status, event.tone) + '</div>'
           + '<div class="event-card-body"><div class="eyebrow">' + esc(event.category) + '</div><h3>' + esc(event.title) + '</h3>'
@@ -47,7 +43,7 @@
         ? '<div class="event-grid">' + cards + '</div>'
         : ui.emptyView({ title: 'No events found', description: 'Try a different keyword or reset your filters.', action: '<button class="button button-secondary" data-reset>Reset filters</button>' });
 
-      const cats = ['All categories', 'Hackathon', 'Workshop', 'Conference', 'Community'];
+      const cats = D.eventCategories;
       return '<div class="page-stack">'
         + '<div class="welcome-row"><div><div class="eyebrow">Open doors</div><h1>Discover events</h1>'
         + '<p class="lede">Find the spaces, people, and ideas worth showing up for.</p></div>'
@@ -78,8 +74,8 @@
       });
       document.querySelectorAll('[data-event]').forEach(function (card) {
         card.addEventListener('click', function () {
-          const ev = events.find(function (e) { return e.id === card.getAttribute('data-event'); });
-          WM.openModal(eventDetailModal(ev));
+          const ev = D.events.find(function (e) { return String(e.id) === card.getAttribute('data-event'); });
+          if (ev) WM.openModal(eventDetailModal(ev));
         });
       });
     }
@@ -99,18 +95,20 @@
         + '<div><span class="eyebrow">Availability</span><strong>' + esc(event.seats) + '</strong></div></div>'
         + agenda
         + '<div class="modal-actions"><button class="button button-secondary" data-close-modal>Close</button>'
-        + '<a class="button button-primary" href="forms-event-registration.html">Register for event ' + ic('chevron-right', 16) + '</a></div>'
+        + '<a class="button button-primary" href="forms-event-registration.html?event=' + encodeURIComponent(event.id) + '">Register for event ' + ic('chevron-right', 16) + '</a></div>'
         + '</section></div>';
     }
 
-    WM.page({ route: '/discover', render: render, mounted: wire });
+    WM.page({ route: '/discover', render: render, mounted: wire, load: LOAD });
   }
 
   /* ===================== Registrations ===================== */
   function registrations() {
-    const state = { tab: 'all', selected: null };
+    const state = { tab: 'all' };
 
     function render() {
+      const regs = D.registrations;
+      const leaderboard = D.leaderboard;
       const filtered = state.tab === 'upcoming' ? regs.filter(function (r) { return r.status === 'Confirmed'; })
         : state.tab === 'completed' ? regs.filter(function (r) { return r.status === 'Completed'; }) : regs;
 
@@ -152,14 +150,14 @@
       });
       document.querySelectorAll('[data-ticket]').forEach(function (b) {
         b.addEventListener('click', function () {
-          const reg = regs.find(function (r) { return r.id === b.getAttribute('data-ticket'); });
-          WM.openModal(ticketModal(reg));
+          const reg = D.registrations.find(function (r) { return String(r.id) === b.getAttribute('data-ticket'); });
+          if (reg) WM.openModal(ticketModal(reg));
         });
       });
       const dl = document.querySelector('[data-download-list]');
       if (dl) dl.addEventListener('click', function () {
         const csv = 'Event Title,Category,Date,Time,Location,Status,Ticket Code\n'
-          + regs.map(function (r) { return '"' + r.eventTitle + '","' + r.category + '","' + r.date + '","' + r.time + '","' + r.location + '","' + r.status + '","' + r.ticketCode + '"'; }).join('\n');
+          + D.registrations.map(function (r) { return '"' + r.eventTitle + '","' + r.category + '","' + r.date + '","' + r.time + '","' + r.location + '","' + r.status + '","' + r.ticketCode + '"'; }).join('\n');
         WM.downloadCSV('waymark-registrations.csv', csv);
       });
     }
@@ -187,36 +185,38 @@
       if (t) alert('Downloaded ticket pass ' + t.getAttribute('data-download-ticket'));
     });
 
-    WM.page({ route: '/registrations', render: render, mounted: wire });
+    WM.page({ route: '/registrations', render: render, mounted: wire, load: LOAD });
   }
 
   /* ===================== Events (host) ===================== */
   function eventsPage() {
-    const state = { selected: null };
-    const hostRows = [
-      { title: 'Community Research Sprint', category: 'Workshop', created: 'Sep 28, 2026', tone: 'amber', status: 'Changes requested', count: 0 },
-      { title: 'Zero Origin Hackathon', category: 'Hackathon', created: 'Sep 20, 2026', tone: 'green', status: 'Published', count: 86 },
-      { title: 'Climate Voices Forum', category: 'Conference', created: 'Aug 14, 2026', tone: 'blue', status: 'Approved', count: 124 },
-    ];
-
     function render() {
-      const rows = hostRows.map(function (row, i) {
-        const base = events[i];
+      const events = D.events;
+      const rows = events.map(function (event) {
+        const status = event.approvalStatus || event.status;
         return '<div class="table-row">'
-          + tableEvent({ title: row.title, category: row.category, initials: base.initials, color: base.color })
-          + '<span>' + esc(row.created) + '</span>'
-          + ui.badge(row.status, row.tone)
-          + '<span>' + row.count + '</span>'
-          + '<button class="row-action" data-manage="' + esc(row.title) + '">Manage ' + ic('chevron-right', 15) + '</button></div>';
+          + tableEvent({ title: event.title, category: event.category, initials: event.initials, color: event.color })
+          + '<span>' + esc(event.createdAt || event.date) + '</span>'
+          + ui.badge(status, event.tone)
+          + '<span>' + (event.registeredNum || 0) + '</span>'
+          + '<button class="row-action" data-manage="' + esc(event.title) + '">Manage ' + ic('chevron-right', 15) + '</button></div>';
       }).join('');
+
+      const published = events.filter(function (e) { return e.approvalStatus === 'Published'; }).length;
+      const attention = events.filter(function (e) {
+        const s = e.approvalStatus || '';
+        return s === 'Changes requested' || s === 'Rejected' || s === 'Pending approval';
+      }).length;
+      const categories = [];
+      events.forEach(function (e) { if (e.category && categories.indexOf(e.category) === -1) categories.push(e.category); });
 
       return '<div class="page-stack">'
         + ui.sectionHeading({ eyebrow: 'Host workspace', title: 'My events', action: '<div class="heading-actions"><button class="button button-secondary" data-export-events>' + ic('download', 15) + 'Export</button>'
           + '<a class="button button-primary" href="forms-host-event.html">' + ic('plus', 17) + 'Create event</a></div>' })
         + '<div class="stat-grid compact">'
-        + ui.statCard({ label: 'All events', value: '4', detail: 'Across 3 categories', icon: 'clipboard-list', accent: 'blue' })
-        + ui.statCard({ label: 'Published', value: '2', detail: 'Currently discoverable', icon: 'zap', accent: 'teal' })
-        + ui.statCard({ label: 'Needs attention', value: '1', detail: 'Changes requested', icon: 'clock-3', accent: 'amber' })
+        + ui.statCard({ label: 'All events', value: String(events.length), detail: 'Across ' + categories.length + ' categories', icon: 'clipboard-list', accent: 'blue' })
+        + ui.statCard({ label: 'Published', value: String(published), detail: 'Currently discoverable', icon: 'zap', accent: 'teal' })
+        + ui.statCard({ label: 'Needs attention', value: String(attention), detail: 'Awaiting review or changes', icon: 'clock-3', accent: 'amber' })
         + '</div>'
         + '<section class="panel table-panel">' + tableHead(['Event', 'Created', 'Status', 'Registrations', '']) + rows + '</section>'
         + '</div>';
@@ -230,10 +230,11 @@
       });
       const exp = document.querySelector('[data-export-events]');
       if (exp) exp.addEventListener('click', function () {
-        WM.downloadCSV('my-hosted-events.csv', 'Title,Category,Created Date,Status,Registrations\n'
-          + 'Community Research Sprint,Workshop,Sep 28 2026,Changes requested,0\n'
-          + 'Zero Origin Hackathon,Hackathon,Sep 20 2026,Published,86\n'
-          + 'Climate Voices Forum,Conference,Aug 14 2026,Approved,124\n');
+        const csv = 'Title,Category,Created Date,Status,Registrations\n'
+          + D.events.map(function (e) {
+            return '"' + e.title + '","' + e.category + '","' + (e.createdAt || e.date) + '","' + (e.approvalStatus || e.status) + '","' + (e.registeredNum || 0) + '"';
+          }).join('\n');
+        WM.downloadCSV('my-hosted-events.csv', csv);
       });
     }
 
@@ -255,30 +256,34 @@
         + '</section></div>';
     }
 
-    WM.page({ route: '/events', render: render, mounted: wire });
+    WM.page({ route: '/events', render: render, mounted: wire, load: LOAD });
   }
 
   /* ===================== Approvals ===================== */
   function approvals() {
-    const rows = ['Campus Sustainability Summit', 'Intro to Ethical AI', 'Open Source Office Hours', 'Student Founder Showcase'];
-    const cats = ['Conference', 'Workshop', 'Community', 'Competition'];
-    const hosts = ['Jordan Lee', 'Samira Okafor', 'Theo Martin', 'Ari Kim'];
+    function pendingEvents() {
+      return D.events.filter(function (e) {
+        const s = e.approvalStatus || '';
+        return s === 'Pending approval' || s === 'Changes requested' || s === 'Rejected' || s === 'Pending review';
+      });
+    }
 
     function render() {
-      const body = rows.map(function (title, index) {
-        const base = events[index];
+      const rows = pendingEvents();
+      const body = rows.map(function (event, index) {
+        const rejected = event.approvalStatus === 'Rejected';
         return '<div class="table-row">'
-          + tableEvent({ title: title, category: cats[index], initials: base.initials, color: base.color })
-          + '<span>' + esc(hosts[index]) + '</span>'
-          + '<span>' + (index + 1) + 'h ago</span>'
-          + ui.badge(index === 3 ? 'Rejected' : 'Pending review', index === 3 ? 'red' : 'amber')
-          + '<a class="row-action" href="forms-approval.html">Review ' + ic('chevron-right', 15) + '</a></div>';
+          + tableEvent({ title: event.title, category: event.category, initials: event.initials, color: event.color })
+          + '<span>' + esc(event.organizer || '') + '</span>'
+          + '<span>' + esc(event.submittedAt || event.date) + '</span>'
+          + ui.badge(rejected ? 'Rejected' : 'Pending review', rejected ? 'red' : 'amber')
+          + '<a class="row-action" href="forms-approval.html?event=' + encodeURIComponent(event.id) + '">Review ' + ic('chevron-right', 15) + '</a></div>';
       }).join('');
 
       return '<div class="page-stack">'
         + ui.sectionHeading({ eyebrow: 'Admin workspace', title: 'Approval queue', action: '<a class="button button-secondary" href="forms-approval.html">Review form ' + ic('chevron-right', 15) + '</a>' })
         + '<div class="queue-callout"><div class="callout-icon">' + ic('shield-check', 20) + '</div>'
-        + '<div><strong>8 events need your review</strong><span>Review content, eligibility, and certificate settings before publishing.</span></div>'
+        + '<div><strong>' + rows.length + ' events need your review</strong><span>Review content, eligibility, and certificate settings before publishing.</span></div>'
         + '<a class="button button-secondary" href="forms-approval.html">View guidelines</a></div>'
         + '<div class="search-toolbar compact-toolbar"><label class="search-field">' + ic('search', 18)
         + '<input placeholder="Search by title, host, or event type" /></label>'
@@ -287,15 +292,21 @@
         + '</div>';
     }
 
-    WM.page({ route: '/approvals', render: render });
+    WM.page({ route: '/approvals', render: render, load: LOAD });
   }
 
   /* ===================== Notifications ===================== */
   function notifications() {
-    const state = { list: notifs.map(function (n) { return Object.assign({}, n); }), filter: 'all' };
+    const state = { list: null, filter: 'all' };
+
+    function currentList() {
+      if (!state.list) state.list = D.notifications.map(function (n) { return Object.assign({}, n); });
+      return state.list;
+    }
 
     function render() {
-      const filtered = state.list.filter(function (n) { return state.filter === 'all' || !n.read; });
+      const list = currentList();
+      const filtered = list.filter(function (n) { return state.filter === 'all' || !n.read; });
       const items = filtered.map(function (item) {
         const tone = item.type === 'certificate' ? 'blue' : item.type === 'approval' ? 'green' : 'amber';
         const icon = item.type === 'certificate' ? 'file-check-2' : item.type === 'approval' ? 'check' : 'bell';
@@ -305,11 +316,11 @@
           + '<time>' + esc(item.time) + '</time></div>';
       }).join('');
 
-      const unread = state.list.filter(function (n) { return !n.read; }).length;
+      const unread = list.filter(function (n) { return !n.read; }).length;
       return '<div class="page-stack">'
         + ui.sectionHeading({ eyebrow: 'Your inbox', title: 'Notifications & Activity', action: '<button class="button button-secondary" data-mark-read>Mark all read</button>' })
         + '<div class="filter-tabs">'
-        + '<button class="' + (state.filter === 'all' ? 'active' : '') + '" data-nfilter="all">All <span>' + state.list.length + '</span></button>'
+        + '<button class="' + (state.filter === 'all' ? 'active' : '') + '" data-nfilter="all">All <span>' + list.length + '</span></button>'
         + '<button class="' + (state.filter === 'unread' ? 'active' : '') + '" data-nfilter="unread">Unread <span>' + unread + '</span></button>'
         + '</div>'
         + '<section class="panel notification-panel"><div class="activity-list">' + items + '</div></section>'
@@ -322,10 +333,14 @@
         b.addEventListener('click', function () { state.filter = b.getAttribute('data-nfilter'); refresh(); });
       });
       const m = document.querySelector('[data-mark-read]');
-      if (m) m.addEventListener('click', function () { state.list = state.list.map(function (n) { return Object.assign({}, n, { read: true }); }); refresh(); });
+      if (m) m.addEventListener('click', function () {
+        global.WMApi.notifications.markAllRead().catch(function () { /* best effort */ });
+        state.list = currentList().map(function (n) { return Object.assign({}, n, { read: true }); });
+        refresh();
+      });
     }
 
-    WM.page({ route: '/notifications', render: render, mounted: wire });
+    WM.page({ route: '/notifications', render: render, mounted: wire, load: LOAD });
   }
 
   /* ===================== Profile (SimplePage generic) ===================== */
@@ -344,6 +359,7 @@
     const state = { search: '', role: 'All roles' };
 
     function render() {
+      const users = D.users;
       const filtered = users.filter(function (u) {
         const q = (u.name + ' ' + u.email + ' ' + u.role).toLowerCase();
         return q.indexOf(state.search.toLowerCase()) !== -1 && (state.role === 'All roles' || u.role === state.role);
@@ -381,7 +397,7 @@
       if (a) a.addEventListener('click', function () { alert('Add user modal ready.'); });
     }
 
-    WM.page({ route: '/users', render: render, mounted: wire });
+    WM.page({ route: '/users', render: render, mounted: wire, load: LOAD });
   }
 
   /* ===================== Audit ===================== */
@@ -389,6 +405,7 @@
     const state = { search: '' };
 
     function render() {
+      const logs = D.auditLogs;
       const filtered = logs.filter(function (log) {
         return (log.action + ' ' + log.user + ' ' + log.target).toLowerCase().indexOf(state.search.toLowerCase()) !== -1;
       });
@@ -416,11 +433,11 @@
       const e = document.querySelector('[data-export-audit]');
       if (e) e.addEventListener('click', function () {
         WM.downloadCSV('waymark-audit-log.csv', 'Action,User,Target,Timestamp,IP,Status\n'
-          + logs.map(function (l) { return '"' + l.action + '","' + l.user + '","' + l.target + '","' + l.timestamp + '","' + l.ip + '","' + l.status + '"'; }).join('\n'));
+          + D.auditLogs.map(function (l) { return '"' + l.action + '","' + l.user + '","' + l.target + '","' + l.timestamp + '","' + l.ip + '","' + l.status + '"'; }).join('\n'));
       });
     }
 
-    WM.page({ route: '/audit', render: render, mounted: wire });
+    WM.page({ route: '/audit', render: render, mounted: wire, load: LOAD });
   }
 
   global.WMPages = global.WMPages || {};

@@ -6,13 +6,38 @@
 
   function formProfile() {
     const s = {
-      fullName: 'Maya Chen', email: 'maya@waymark.events', phone: '+1 555 0142', org: 'Independent',
-      role: 'Event host',
-      bio: 'Community builder and event organizer focused on civic tech and sustainability initiatives.',
-      website: 'https://maya-chen.work', location: 'San Francisco, CA', birthDate: '1998-03-14', pronouns: 'she/her',
-      emailUpdates: true, smsReminders: false, publicProfile: true,
+      fullName: '', email: '', phone: '', org: '', role: '', bio: '',
+      website: '', location: '', birthDate: '', pronouns: '',
+      emailUpdates: false, smsReminders: false, publicProfile: false,
       errors: {}, status: 'idle', statusMsg: '', loading: false,
     };
+
+    function apply(user) {
+      if (!user || typeof user !== 'object') return;
+      const u = user.user || user.profile || user;
+      s.fullName = u.name || u.fullName || '';
+      s.email = u.email || '';
+      s.phone = u.phone || '';
+      s.org = u.org || '';
+      s.role = u.role || '';
+      s.bio = u.bio || '';
+      s.website = u.website || '';
+      s.location = u.location || '';
+      s.birthDate = u.birthDate || '';
+      s.pronouns = u.pronouns || '';
+      s.emailUpdates = !!u.emailUpdates;
+      s.smsReminders = !!u.smsReminders;
+      s.publicProfile = !!u.publicProfile;
+    }
+
+    function payload() {
+      return {
+        name: s.fullName, email: s.email, phone: s.phone, org: s.org, role: s.role,
+        bio: s.bio, website: s.website, location: s.location, birthDate: s.birthDate,
+        pronouns: s.pronouns, emailUpdates: s.emailUpdates, smsReminders: s.smsReminders,
+        publicProfile: s.publicProfile,
+      };
+    }
 
     function render() {
       return '<div class="page-stack">'
@@ -80,18 +105,32 @@
         b.addEventListener('click', function () {
           const action = b.getAttribute('data-action');
           if (action === 'cancel') { s.status = 'idle'; s.statusMsg = ''; draw(); }
-          else if (action === 'save') { s.loading = true; s.status = 'loading'; draw(); window.setTimeout(function () { s.loading = false; s.status = 'success'; s.statusMsg = 'Profile saved successfully.'; draw(); }, 700); }
-          else if (action === 'submit') {
-            const e = validate(); s.errors = e;
-            if (Object.keys(e).length) { draw(); return; }
+          else if (action === 'save' || action === 'submit') {
+            if (action === 'submit') {
+              const e = validate(); s.errors = e;
+              if (Object.keys(e).length) { draw(); return; }
+            }
             s.loading = true; s.status = 'loading'; draw();
-            window.setTimeout(function () { s.loading = false; s.status = 'success'; s.statusMsg = 'Profile updated and published.'; draw(); }, 900);
+            global.WMApi.users.updateMe(payload()).then(function () {
+              s.loading = false; s.status = 'success';
+              s.statusMsg = action === 'save' ? 'Profile saved successfully.' : 'Profile updated and published.';
+              draw();
+            }, function (err) {
+              s.loading = false; s.status = 'error';
+              s.statusMsg = (err && err.message) || 'We could not save your profile. Please try again.';
+              draw();
+            });
           }
         });
       });
     }
 
-    WM.page({ route: '/forms/profile', render: render, mounted: function () { wire(); } });
+    WM.page({
+      route: '/forms/profile',
+      render: render,
+      mounted: function () { wire(); },
+      load: function () { return global.WMApi.users.me().then(apply); },
+    });
   }
 
   global.WMPages = global.WMPages || {};
