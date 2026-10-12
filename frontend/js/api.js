@@ -83,6 +83,7 @@
   function get(path, params, opts) { return request('GET', path + qs(params), undefined, opts); }
   function post(path, body, opts) { return request('POST', path, body === undefined ? {} : body, opts); }
   function put(path, body, opts) { return request('PUT', path, body === undefined ? {} : body, opts); }
+  function patch(path, body, opts) { return request('PATCH', path, body === undefined ? {} : body, opts); }
   function del(path, opts) { return request('DELETE', path, undefined, opts); }
 
   global.WMApi = {
@@ -107,10 +108,26 @@
       me: function () { return get('/auth/me'); },
       requestPasswordReset: function (email) { return post('/auth/password-reset', { email: email }); },
       resetPassword: function (token, password) { return post('/auth/password-reset/confirm', { token: token, password: password }); },
+      requestOtp: function (email, purpose) {
+        return post('/auth/otp/request', { email: email, purpose: purpose || 'password_reset' });
+      },
+      verifyOtp: function (email, purpose, code) {
+        return post('/auth/otp/verify', { email: email, purpose: purpose || 'password_reset', code: code });
+      },
     },
 
     meta: {
       get: function () { return get('/meta'); },
+    },
+
+    me: {
+      registrations: function (params) { return get('/me/registrations', params); },
+      certificates: function (params) { return get('/me/certificates', params); },
+    },
+
+    eventTypes: {
+      list: function (params) { return get('/event-types', params); },
+      get: function (id) { return get('/event-types/' + encodeURIComponent(id)); },
     },
 
     events: {
@@ -120,11 +137,23 @@
       update: function (id, data) { return put('/events/' + encodeURIComponent(id), data); },
       remove: function (id) { return del('/events/' + encodeURIComponent(id)); },
       submit: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/submit', payload); },
+      cancel: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/cancel', payload); },
+      complete: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/complete', payload); },
+      duplicate: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/duplicate', payload); },
       approve: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/approve', payload); },
       leaderboard: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/leaderboard', params); },
       submissions: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/submissions', params); },
       roster: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/roster', params); },
       participants: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/participants', params); },
+      registrations: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/registrations', params); },
+      exceptions: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/exceptions', params); },
+      attendance: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/attendance', params); },
+      noShows: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/no-shows', params); },
+      jobs: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/jobs', params); },
+      results: function (id, params) { return get('/events/' + encodeURIComponent(id) + '/results', params); },
+      releaseResults: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/results/release', payload); },
+      generateCertificates: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/certificates/generate', payload); },
+      sendMessage: function (id, payload) { return post('/events/' + encodeURIComponent(id) + '/messages', payload); },
     },
 
     registrations: {
@@ -132,6 +161,14 @@
       create: function (data) { return post('/registrations', data); },
       remove: function (id) { return del('/registrations/' + encodeURIComponent(id)); },
       ticket: function (id) { return get('/registrations/' + encodeURIComponent(id) + '/ticket'); },
+      qr: function (id) { return get('/registrations/' + encodeURIComponent(id) + '/qr'); },
+      acceptOffer: function (id) { return post('/registrations/' + encodeURIComponent(id) + '/accept-offer'); },
+      declineOffer: function (id) { return post('/registrations/' + encodeURIComponent(id) + '/decline-offer'); },
+      override: function (id, payload) { return post('/registrations/' + encodeURIComponent(id) + '/override', payload); },
+    },
+
+    checkin: {
+      create: function (data) { return post('/checkin', data); },
     },
 
     leaderboard: {
@@ -164,12 +201,18 @@
       remove: function (id) { return del('/jury/' + encodeURIComponent(id)); },
       assignments: function (params) { return get('/jury/assignments', params); },
       assign: function (data) { return post('/jury/assignments', data); },
+      lookup: function (data) { return post('/jury/lookup', data); },
+      scores: function (data) { return post('/jury/scores', data); },
     },
 
     rubrics: {
       list: function (params) { return get('/rubrics', params); },
       get: function (id) { return get('/rubrics/' + encodeURIComponent(id)); },
       create: function (data) { return post('/rubrics', data); },
+      forEvent: function (eventId, round, data) {
+        const path = '/events/' + encodeURIComponent(eventId) + '/rubrics/' + encodeURIComponent(round || 'preliminary');
+        return data ? put(path, data) : get(path);
+      },
     },
 
     submissions: {
@@ -179,6 +222,7 @@
 
     scores: {
       create: function (data) { return post('/scores', data); },
+      reopen: function (id, payload) { return post('/scores/' + encodeURIComponent(id) + '/reopen', payload); },
     },
 
     attendance: {
@@ -195,7 +239,60 @@
     certificates: {
       list: function (params) { return get('/certificates', params); },
       issue: function (data) { return post('/certificates/issue', data); },
-      verify: function (credentialId) { return get('/certificates/verify/' + encodeURIComponent(credentialId)); },
+      withdraw: function (id, payload) { return post('/certificates/' + encodeURIComponent(id) + '/withdraw', payload); },
+      verify: function (credentialId) { return get('/verify/' + encodeURIComponent(credentialId)); },
+    },
+
+    reports: {
+      get: function (eventId, kind, params) {
+        return get('/events/' + encodeURIComponent(eventId) + '/reports/' + encodeURIComponent(kind), params);
+      },
+      url: function (eventId, kind, format) {
+        return BASE + '/events/' + encodeURIComponent(eventId) + '/reports/' + encodeURIComponent(kind)
+          + qs({ format: format || 'pdf' });
+      },
+    },
+
+    jobs: {
+      list: function (params) { return get('/admin/jobs', params); },
+      retry: function (id) { return post('/admin/jobs/' + encodeURIComponent(id) + '/retry'); },
+    },
+
+    messages: {
+      list: function (params) { return get('/messages', params); },
+      resend: function (id) { return post('/messages/' + encodeURIComponent(id) + '/resend'); },
+    },
+
+    guest: {
+      activate: function (token) {
+        return post('/guest/activate', { token: token }).then(function (data) {
+          if (data && data.token) setToken(data.token);
+          return data;
+        });
+      },
+    },
+
+    admin: {
+      reviewQueue: function (params) { return get('/admin/review-queue', params); },
+      approve: function (id, payload) { return post('/admin/events/' + encodeURIComponent(id) + '/approve', payload); },
+      requestChanges: function (id, payload) { return post('/admin/events/' + encodeURIComponent(id) + '/request-changes', payload); },
+      reject: function (id, payload) { return post('/admin/events/' + encodeURIComponent(id) + '/reject', payload); },
+      users: function (params) { return get('/admin/users', params); },
+      events: function (params) { return get('/admin/events', params); },
+      audit: function (params) { return get('/admin/audit', params); },
+      jobs: function (params) { return get('/admin/jobs', params); },
+      retryJob: function (id) { return post('/admin/jobs/' + encodeURIComponent(id) + '/retry'); },
+      removeUser: function (id, payload) { return post('/admin/users/' + encodeURIComponent(id) + '/remove', payload); },
+      aiLogs: function (params) { return get('/admin/ai-logs', params); },
+      settings: function () { return get('/admin/settings'); },
+      updateSettings: function (data) { return patch('/admin/settings', data); },
+    },
+
+    ai: {
+      draftEvent: function (data) { return post('/ai/draft-event', data); },
+      draftMessage: function (data) { return post('/ai/draft-message', data); },
+      summariseFeedback: function (data) { return post('/ai/summarise-feedback', data); },
+      ask: function (data) { return post('/ai/ask', data); },
     },
   };
 })(window);

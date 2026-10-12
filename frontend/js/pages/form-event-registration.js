@@ -12,6 +12,7 @@
       teamName: '', teamSize: '1', experienceLevel: '', dietaryPref: '', track: '', posterTopic: '',
       accommodation: false, transport: false, agree: false, agreeCode: false,
       errors: {}, status: 'idle', statusMsg: '', loading: false,
+      waitlist: false, isFull: false,
     };
 
     function applyUser(user) {
@@ -27,6 +28,7 @@
       return D.ready().then(function () {
         const params = new URLSearchParams(global.location.search);
         const id = params.get('event');
+        const wantsWaitlist = params.get('waitlist') === '1';
         const event = (id && D.events.find(function (e) { return String(e.id) === id; })) || D.events[0] || null;
         if (event) {
           s.eventId = event.id;
@@ -34,6 +36,14 @@
           s.eventStatus = event.status || 'Registration open';
           s.eventTone = event.tone || 'green';
           if (event.category) s.eventType = event.category;
+          const capacity = event.capacityNum || 0;
+          const registered = event.registeredNum || 0;
+          s.isFull = capacity > 0 && registered >= capacity;
+          s.waitlist = wantsWaitlist || s.isFull;
+          if (s.waitlist) {
+            s.eventStatus = 'Waitlist open';
+            s.eventTone = 'amber';
+          }
         }
         const user = WM.Auth.getUser();
         if (user) applyUser(user);
@@ -98,6 +108,9 @@
         + '<div class="section-heading"><div><span class="eyebrow">Event registration</span><h2>'
         + (s.eventTitle ? 'Register for: ' + WM.esc(s.eventTitle) : 'Register for an event') + '</h2></div>'
         + (s.eventStatus ? ui.badge(s.eventStatus, s.eventTone) : '') + '</div>'
+        + (s.waitlist ? F.formStatus('success', s.isFull
+          ? 'This event is fully booked. Registering now places you on the waitlist \u2014 we will email you if a seat opens up.'
+          : 'You are joining the waitlist for this event. Offers are sent in order as seats open up.') : '')
         + F.formSection({ title: 'Event type', eyebrow: 'Format', children:
           F.radioGroup({ id: 'reg-type', label: 'Select your event type', value: s.eventType, columns: 4, options: [
             { value: 'Hackathon', label: 'Hackathon', detail: 'Team competition' },
@@ -119,7 +132,7 @@
           F.checkboxField({ id: 'reg-agree', label: 'I accept the participation terms and event guidelines', checked: s.agree })
           + (s.errors.agree ? '<span class="field-error">' + WM.esc(s.errors.agree) + '</span>' : '') })
         + F.formStatus(s.status, s.statusMsg)
-        + F.formActions({ submitLabel: 'Confirm registration', saveLabel: 'Save draft', loading: s.loading })
+        + F.formActions({ submitLabel: s.waitlist ? 'Join waitlist' : 'Confirm registration', saveLabel: 'Save draft', loading: s.loading })
         + '</div>';
     }
 
@@ -199,10 +212,16 @@
             const e = validate(); s.errors = e;
             if (Object.keys(e).length) { draw(); return; }
             s.loading = true; s.status = 'loading'; draw();
-            global.WMApi.registrations.create(payload()).then(function (data) {
+            global.WMApi.registrations.create(Object.assign(payload(), s.waitlist ? { waitlist: true } : {})).then(function (data) {
               s.loading = false; s.status = 'success';
-              const code = data && (data.ticketCode || data.ticket_code);
-              s.statusMsg = 'Registration confirmed!' + (code ? ' Your ticket code is ' + code + '.' : ' A confirmation email has been sent.');
+              if (s.waitlist) {
+                const pos = data && (data.position || data.waitlistPosition);
+                s.statusMsg = 'You are on the waitlist.' + (pos ? ' Your position is #' + pos + '.' : '')
+                  + ' We will email you when a seat opens up.';
+              } else {
+                const code = data && (data.ticketCode || data.ticket_code);
+                s.statusMsg = 'Registration confirmed!' + (code ? ' Your ticket code is ' + code + '.' : ' A confirmation email has been sent.');
+              }
               draw();
             }, function (err) {
               s.loading = false; s.status = 'error';
