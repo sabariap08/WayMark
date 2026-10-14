@@ -7,7 +7,7 @@ from extensions import db
 from models import (AiLog, AuditLog, Event, Job, MailMessage, PlatformSetting, User)
 from utils.helpers import audit, notify
 from utils.mailer import email_configured, send_mail, smtp_from
-from utils.security import current_user, require_role
+from utils.security import current_user, require_admin
 from utils.serializers import (ai_log_json, audit_json, event_json, job_json, user_json)
 
 admin_bp = Blueprint('admin', __name__)
@@ -38,6 +38,7 @@ def get_settings():
 
 
 @admin_bp.route('/admin/settings', methods=['GET'])
+@require_admin
 def settings_get():
     _, data = get_settings()
     data['emailConfigured'] = email_configured()
@@ -46,6 +47,7 @@ def settings_get():
 
 
 @admin_bp.route('/admin/settings', methods=['PATCH', 'PUT'])
+@require_admin
 def settings_update():
     row, _ = get_settings()
     payload = request.get_json(silent=True) or {}
@@ -65,6 +67,7 @@ def settings_update():
 
 
 @admin_bp.route('/admin/review-queue', methods=['GET'])
+@require_admin
 def review_queue():
     rows = Event.query.filter(Event.status.in_(['Pending', 'Changes requested'])).order_by(Event.submitted_at.asc()).all()
     return jsonify([event_json(e) for e in rows])
@@ -90,6 +93,7 @@ def _moderate(event_id, status, approval_status, notify_title, reason='', mail_s
 
 
 @admin_bp.route('/admin/events/<event_id>/approve', methods=['POST'])
+@require_admin
 def approve(event_id):
     payload = request.get_json(silent=True) or {}
     event = _moderate(event_id, str(payload.get('status') or 'Registration open'), 'Approved',
@@ -101,6 +105,7 @@ def approve(event_id):
 
 
 @admin_bp.route('/admin/events/<event_id>/request-changes', methods=['POST'])
+@require_admin
 def request_changes(event_id):
     payload = request.get_json(silent=True) or {}
     reason = str(payload.get('message') or payload.get('reason') or '')
@@ -113,6 +118,7 @@ def request_changes(event_id):
 
 
 @admin_bp.route('/admin/events/<event_id>/reject', methods=['POST'])
+@require_admin
 def reject(event_id):
     payload = request.get_json(silent=True) or {}
     reason = str(payload.get('reason') or payload.get('message') or '')
@@ -125,6 +131,7 @@ def reject(event_id):
 
 
 @admin_bp.route('/admin/users', methods=['GET'])
+@require_admin
 def admin_users():
     query = User.query
     role = request.args.get('role')
@@ -135,6 +142,7 @@ def admin_users():
 
 
 @admin_bp.route('/admin/users/<user_id>/remove', methods=['POST'])
+@require_admin
 def remove_user(user_id):
     user = User.query.get(user_id)
     if not user:
@@ -147,6 +155,7 @@ def remove_user(user_id):
 
 
 @admin_bp.route('/admin/events', methods=['GET'])
+@require_admin
 def admin_events():
     status = request.args.get('status')
     query = Event.query
@@ -157,6 +166,7 @@ def admin_events():
 
 
 @admin_bp.route('/admin/audit', methods=['GET'])
+@require_admin
 def admin_audit():
     q = (request.args.get('q') or '').strip().lower()
     query = AuditLog.query
@@ -167,6 +177,7 @@ def admin_audit():
 
 
 @admin_bp.route('/admin/jobs', methods=['GET'])
+@require_admin
 def admin_jobs():
     status = request.args.get('status')
     query = Job.query
@@ -177,6 +188,7 @@ def admin_jobs():
 
 
 @admin_bp.route('/admin/jobs/<job_id>/retry', methods=['POST'])
+@require_admin
 def retry_job(job_id):
     job = Job.query.get(job_id)
     if not job:
@@ -196,12 +208,14 @@ def retry_job(job_id):
 
 
 @admin_bp.route('/admin/ai-logs', methods=['GET'])
+@require_admin
 def admin_ai_logs():
     rows = AiLog.query.order_by(AiLog.created_at.desc()).limit(100).all()
     return jsonify([ai_log_json(a) for a in rows])
 
 
 @admin_bp.route('/admin/mail', methods=['GET'])
+@require_admin
 def admin_mail():
     rows = MailMessage.query.order_by(MailMessage.created_at.desc()).limit(200).all()
     from utils.serializers import mail_json

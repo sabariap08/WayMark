@@ -45,16 +45,22 @@ def signup():
     name = str(payload.get('name') or '').strip()
     email = str(payload.get('email') or '').strip().lower()
     password = str(payload.get('password') or '')
-    role = str(payload.get('role') or 'participant').strip().lower()
 
     if not name or not email or not password:
         return jsonify({'message': 'Name, email and password are required.'}), 400
-    if role not in ('participant', 'host', 'jury', 'admin'):
-        role = 'participant'
     if User.query.filter_by(email=email).first():
         return jsonify({'message': 'An account with this email already exists.'}), 409
 
-    user = User(name=name, email=email, password_hash=hash_password(password), role=role)
+    # Only two application roles exist. Public signup always creates a Normal
+    # User; an admin can never be self-granted through the API.
+    user = User(name=name, email=email, password_hash=hash_password(password), role='user')
+    base = email.split('@')[0][:60] or 'user'
+    username = base
+    suffix = 1
+    while User.query.filter_by(username=username).first():
+        suffix += 1
+        username = base + str(suffix)
+    user.username = username
     db.session.add(user)
     db.session.commit()
 
@@ -66,14 +72,14 @@ def signup():
 @auth_bp.route('/auth/login', methods=['POST'])
 def login():
     payload = request.get_json(silent=True) or {}
-    email = str(payload.get('email') or '').strip().lower()
+    ident = str(payload.get('email') or payload.get('username') or '').strip().lower()
     password = str(payload.get('password') or '')
-    user = User.query.filter_by(email=email).first()
+    user = User.query.filter(db.or_(User.email == ident, db.func.lower(User.username) == ident)).first()
     if not user or not verify_password(user, password):
-        return jsonify({'message': 'Invalid email or password.'}), 401
+        return jsonify({'message': 'Invalid credentials. Check your email/username and password.'}), 401
     if (user.status or '').lower() == 'suspended':
         return jsonify({'message': 'This account has been suspended.'}), 403
-    audit('Signed in', user, target=email)
+    audit('Signed in', user, target=user.email)
     return jsonify({'token': issue_token(user), 'user': user_json(user)})
 
 

@@ -7,7 +7,7 @@ from extensions import db
 from models import Event, Job, JuryAssignment, MailMessage, Registration
 from utils.helpers import audit
 from utils.mailer import email_configured, send_mail
-from utils.security import current_user
+from utils.security import can_manage_event, current_user, is_admin
 from utils.serializers import job_json, mail_json
 
 messages_bp = Blueprint('messages', __name__)
@@ -38,7 +38,7 @@ def _audience_recipients(event, audience, custom):
 def list_messages():
     user = current_user()
     query = MailMessage.query
-    if user and user.role not in ('host', 'admin'):
+    if not is_admin(user):
         query = query.filter_by(to_email=user.email or '')
     if request.args.get('kind'):
         query = query.filter_by(kind=request.args.get('kind'))
@@ -51,6 +51,8 @@ def send_event_message(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    if not can_manage_event(current_user(), event):
+        return jsonify({'message': 'Only the event host or an admin can message its registrants.'}), 403
     payload = request.get_json(silent=True) or {}
     subject = str(payload.get('subject') or '').strip()
     body = str(payload.get('body') or '').strip()

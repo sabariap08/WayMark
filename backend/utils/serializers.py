@@ -9,14 +9,18 @@ def iso(dt):
 def user_json(u):
     if not u:
         return None
-    role_key = (u.role or 'participant').lower()
-    labels = {'participant': 'Participant', 'host': 'Host', 'jury': 'Jury', 'admin': 'Admin'}
+    role_key = (u.role or 'user').lower()
+    if role_key not in ('admin', 'user'):
+        role_key = 'user'
+    labels = {'admin': 'Admin', 'user': 'Normal User'}
     return {
         'id': u.id,
         'name': u.name,
         'email': u.email,
-        'role': labels.get(role_key, u.role),
+        'username': u.username or '',
+        'role': labels.get(role_key, 'Normal User'),
         'roleKey': role_key,
+        'isAdmin': role_key == 'admin',
         'status': u.status,
         'eventsCount': u.events_count or 0,
         'joinedDate': u.created_at.strftime('%b %d, %Y') if u.created_at else '',
@@ -312,6 +316,73 @@ def mail_json(m):
         'error': m.error or '',
         'time': humanize(m.created_at),
         'createdAt': iso(m.created_at),
+    }
+
+
+def hosting_json(r):
+    if not r:
+        return None
+    return {
+        'id': r.id,
+        'userId': r.user_id or '',
+        'requesterName': r.requester_name or '',
+        'requesterEmail': r.requester_email or '',
+        'title': r.title or '',
+        'category': r.category or '',
+        'description': r.description or '',
+        'bannerUrl': r.banner_url or '',
+        'date': r.date or '',
+        'endDate': r.end_date or '',
+        'time': r.time or '',
+        'location': r.location or '',
+        'venue': r.venue or '',
+        'onlineUrl': r.online_url or '',
+        'organizer': r.organizer or '',
+        'contactEmail': r.contact_email or '',
+        'contactPhone': r.contact_phone or '',
+        'website': r.website or '',
+        'seats': r.seats or 0,
+        'regOpen': r.reg_open or '',
+        'regDeadline': r.reg_deadline or '',
+        'eligibility': r.eligibility or '',
+        'fee': r.fee or 'Free',
+        'rules': r.rules or '',
+        'staffing': r.staffing or '',
+        'documents': r.documents or '',
+        'tags': r.tags or [],
+        'agenda': r.agenda or [],
+        'requirements': r.requirements or [],
+        'status': r.status or 'Pending',
+        'decisionReason': r.decision_reason or '',
+        'decidedBy': r.decided_by or '',
+        'eventId': r.event_id or '',
+        'submittedAt': iso(r.submitted_at),
+        'decidedAt': iso(r.decided_at),
+        'createdAt': iso(r.created_at),
+        'updatedAt': iso(r.updated_at),
+        'time': humanize(r.submitted_at or r.created_at),
+    }
+
+
+def volunteer_json(v):
+    if not v:
+        return None
+    return {
+        'id': v.id,
+        'eventId': v.event_id or '',
+        'eventTitle': v.event_title or '',
+        'name': v.name or '',
+        'email': v.email or '',
+        'phone': v.phone or '',
+        'department': v.department or '',
+        'responsibility': v.responsibility or '',
+        'shiftDate': v.shift_date or '',
+        'shiftTime': v.shift_time or '',
+        'status': v.status or 'Invited',
+        'inviteToken': v.invite_token or '',
+        'notes': v.notes or '',
+        'createdAt': iso(v.created_at),
+        'time': humanize(v.created_at),
     }
 
 

@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request
 from extensions import db
 from models import Event, Feedback, Registration
 from utils.helpers import audit, notify, parse_bool
-from utils.security import current_user
+from utils.security import can_manage_event, current_user, is_admin
 from utils.serializers import feedback_json
 
 feedback_bp = Blueprint('feedback', __name__)
@@ -17,8 +17,10 @@ def list_feedback():
     query = Feedback.query
     if event_id:
         query = query.filter_by(event_id=event_id)
-    if user and user.role not in ('host', 'admin') and not event_id:
-        query = query.filter_by(user_id=user.id)
+    if not is_admin(user):
+        manage = bool(user and event_id and can_manage_event(user, Event.query.get(event_id)))
+        if not manage:
+            query = query.filter_by(user_id=(user.id if user else ''))
     rows = query.order_by(Feedback.submitted_at.desc()).all()
     return jsonify([feedback_json(f) for f in rows])
 

@@ -10,11 +10,18 @@ from utils.helpers import (attendance_count, audit, category_meta, initials_of, 
                            notify_admins, parse_bool, parse_int, promote_waitlist,
                            refresh_event_counts)
 from utils.mailer import send_mail
-from utils.security import current_user, require_auth
+from utils.security import can_manage_event, current_user, is_admin
 from utils.serializers import (attendance_json, event_json, exception_json, job_json,
                                registration_json, rubric_json, score_json, submission_json)
 
 events_bp = Blueprint('events', __name__)
+
+
+def _forbid_unless_manager(event):
+    """Returns an error response when the caller neither admins nor hosts the event."""
+    if not can_manage_event(current_user(), event):
+        return jsonify({'message': 'You can only manage events you host.'}), 403
+    return None
 
 EDITABLE_FIELDS = {
     'title': ('title', 220), 'category': ('category', 80), 'description': ('description', 6000),
@@ -78,12 +85,15 @@ def list_events():
 @events_bp.route('/events', methods=['POST'])
 def create_event():
     user = current_user()
+    if not is_admin(user):
+        return jsonify({'message': 'Only an administrator can create events directly. '
+                                   'Submit a hosting request instead.'}), 403
     payload = request.get_json(silent=True) or {}
     title = str(payload.get('title') or '').strip()
     if not title:
         return jsonify({'message': 'Event title is required.'}), 400
-    event = Event(title=title, host_id=user.id if user else '', host_name=user.name if user else '',
-                  organizer=(user.name if user else ''))
+    event = Event(title=title, host_id=(user.id if user else ''), host_name=(user.name if user else ''),
+                  organizer=str(payload.get('organizer') or (user.name if user else '')))
     _apply_event_payload(event, payload, creating=True)
     db.session.add(event)
     db.session.commit()
@@ -104,7 +114,12 @@ def update_event(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     payload = request.get_json(silent=True) or {}
+    payload.pop('hostId', None)
+    payload.pop('host_id', None)
     _apply_event_payload(event, payload)
     db.session.commit()
     audit('Event updated', current_user(), target=event.title)
@@ -116,10 +131,17 @@ def delete_event(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
+    from models import JuryAssignment, Volunteer
     Registration.query.filter_by(event_id=event.id).delete()
+    JuryAssignment.query.filter_by(event_id=event.id).delete()
+    Volunteer.query.filter_by(event_id=event.id).delete()
+    title = event.title
     db.session.delete(event)
     db.session.commit()
-    audit('Event deleted', current_user(), target=event.title)
+    audit('Event deleted', current_user(), target=title)
     return jsonify({'ok': True})
 
 
@@ -128,6 +150,9 @@ def submit_event(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     event.status = 'Pending'
     event.approval_status = 'Pending'
     event.submitted_at = datetime.utcnow()
@@ -140,20 +165,46 @@ def submit_event(event_id):
 
 @events_bp.route('/events/<event_id>/approve', methods=['POST'])
 def approve_event(event_id):
+    user = current_user()
+    if not is_admin(user):
+        return jsonify({'message': 'Only an administrator can approve events.'}), 403
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
     payload = request.get_json(silent=True) or {}
     event.status = payload.get('status') or 'Registration open'
     event.approval_status = 'Approved'
+    event.rejection_reason = ''
     event.updated_at = datetime.utcnow()
     db.session.commit()
     if event.host_id:
         notify(event.host_id, 'Event approved', (event.title or 'Your event') + ' is now live.', 'approval')
-        send_mail(event.contact_email or '', 'Your event was approved: ' + (event.title or ''),
-                  'Good news — ' + (event.title or 'your event') + ' is approved and live on WayMark.',
-                  kind='system')
-    audit('Event approved', current_user(), target=event.title)
+    send_mail(event.contact_email or '', 'Your event was approved: ' + (event.title or ''),
+              'Good news — ' + (event.title or 'your event') + ' is approved and live on WayMark.',
+              kind='system')
+    audit('Event approved', user, target=event.title)
+    return jsonify(event_json(event))
+
+
+@events_bp.route('/events/<event_id>/request-changes', methods=['POST'])
+def request_event_changes(event_id):
+    user = current_user()
+    if not is_admin(user):
+        return jsonify({'message': 'Only an administrator can request changes.'}), 403
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get('reason') or '')
+    event.status = 'Changes requested'
+    event.approval_status = 'Changes requested'
+    event.rejection_reason = reason
+    event.updated_at = datetime.utcnow()
+    db.session.commit()
+    if event.host_id:
+        notify(event.host_id, 'Changes requested', (event.title or 'Your event') + ' needs changes.'
+               + (' Reason: ' + reason if reason else ''), 'approval')
+    audit('Changes requested', user, target=event.title)
     return jsonify(event_json(event))
 
 
@@ -162,6 +213,9 @@ def cancel_event(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     payload = request.get_json(silent=True) or {}
     reason = str(payload.get('reason') or '')
     event.status = 'Cancelled'
@@ -183,6 +237,9 @@ def complete_event(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     event.status = 'Completed'
     event.updated_at = datetime.utcnow()
     db.session.commit()
@@ -200,6 +257,9 @@ def duplicate_event(event_id):
     source = Event.query.get(event_id)
     if not source:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(source)
+    if denied:
+        return denied
     copy = Event(
         host_id=source.host_id, host_name=source.host_name, title=(source.title or 'Event') + ' (copy)',
         category=source.category, description=source.description, date=source.date, time=source.time,
@@ -219,18 +279,36 @@ def duplicate_event(event_id):
 
 @events_bp.route('/events/<event_id>/registrations', methods=['GET'])
 def event_registrations(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     rows = Registration.query.filter_by(event_id=event_id).order_by(Registration.registered_at.asc()).all()
     return jsonify([registration_json(r) for r in rows])
 
 
 @events_bp.route('/events/<event_id>/participants', methods=['GET'])
 def event_participants(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     rows = Registration.query.filter_by(event_id=event_id).all()
     return jsonify([registration_json(r) for r in rows])
 
 
 @events_bp.route('/events/<event_id>/roster', methods=['GET'])
 def event_roster(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     session = request.args.get('session')
     rows = Registration.query.filter(
         Registration.event_id == event_id,
@@ -251,12 +329,24 @@ def event_roster(event_id):
 
 @events_bp.route('/events/<event_id>/attendance', methods=['GET'])
 def event_attendance(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     rows = AttendanceLog.query.filter_by(event_id=event_id).order_by(AttendanceLog.timestamp.desc()).all()
     return jsonify([attendance_json(a) for a in rows])
 
 
 @events_bp.route('/events/<event_id>/no-shows', methods=['GET'])
 def event_no_shows(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     checked = {l.registration_id for l in AttendanceLog.query.filter_by(event_id=event_id).all()}
     rows = Registration.query.filter(
         Registration.event_id == event_id,
@@ -273,18 +363,36 @@ def event_no_shows(event_id):
 
 @events_bp.route('/events/<event_id>/exceptions', methods=['GET'])
 def event_exceptions(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     rows = CheckInException.query.filter_by(event_id=event_id).order_by(CheckInException.detected_at.desc()).all()
     return jsonify([exception_json(x) for x in rows])
 
 
 @events_bp.route('/events/<event_id>/jobs', methods=['GET'])
 def event_jobs(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     rows = Job.query.filter_by(event_id=event_id).order_by(Job.created_at.desc()).all()
     return jsonify([job_json(j) for j in rows])
 
 
 @events_bp.route('/events/<event_id>/submissions', methods=['GET'])
 def event_submissions(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     rows = Submission.query.filter_by(event_id=event_id).order_by(Submission.submitted_at.asc()).all()
     scores = Score.query.filter_by(event_id=event_id).all()
     totals = {}
@@ -346,6 +454,8 @@ def event_results(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    if not can_manage_event(current_user(), event) and not event.results_released:
+        return jsonify({'message': 'Results have not been released yet.'}), 403
     rubric = Rubric.query.filter_by(event_id=event_id).order_by(Rubric.created_at.desc()).first()
     return jsonify({
         'event': event_json(event),
@@ -361,6 +471,9 @@ def release_results(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     entries = results_for_event(event)
     if not entries:
         return jsonify({'message': 'No scored submissions to release yet.'}), 400
@@ -391,6 +504,9 @@ def generate_certificates(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    denied = _forbid_unless_manager(event)
+    if denied:
+        return denied
     payload = request.get_json(silent=True) or {}
     cert_type = str(payload.get('type') or 'Participation')
     checked = {l.registration_id for l in AttendanceLog.query.filter_by(event_id=event.id).all()}
@@ -430,4 +546,6 @@ def event_leaderboard(event_id):
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    if not can_manage_event(current_user(), event) and not event.results_released:
+        return jsonify({'message': 'Results have not been released yet.'}), 403
     return jsonify(results_for_event(event))

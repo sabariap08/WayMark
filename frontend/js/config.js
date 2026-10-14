@@ -4,11 +4,14 @@
  * files itself (e.g. via send_from_directory or a static folder), the
  * default same-origin path "/api" works without changes.
  *
+ * WayMark has exactly two application roles: Admin and Normal User. Jury and
+ * volunteer guests activate scoped links (?token=) and never become a role.
+ *
  * Example Flask blueprints expected (all JSON):
  *   /api/auth, /api/events, /api/registrations, /api/users, /api/notifications,
  *   /api/audit-logs, /api/leaderboard, /api/meta, /api/dashboard, /api/jury,
  *   /api/rubrics, /api/submissions, /api/scores, /api/attendance, /api/feedback,
- *   /api/certificates
+ *   /api/certificates, /api/hosting-requests, /api/volunteers, /api/guest
  */
 window.WM_CONFIG = {
   API_BASE_URL: '/api',

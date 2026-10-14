@@ -1,7 +1,6 @@
-/* Dashboard — ports pages/DashboardPage.tsx, extended to a role-aware
- * blueprint dashboard: participant (upcoming + QR, waitlist, certificates,
- * feedback pending), host (events overview), jury (assigned evaluations),
- * admin (review queue + platform shortcuts). */
+/* Dashboard — role-aware for the two application roles: Normal User (upcoming,
+ * QR, waitlist, certificates, feedback, plus hosted events) and Admin (review
+ * queue + platform shortcuts). Jury/volunteer are scoped guests, not roles. */
 (function (global) {
   'use strict';
   const WM = global.WM;
@@ -16,20 +15,16 @@
 
   function header(role, firstName, greeting, today) {
     const actions = {
-      participant: '<a class="button button-primary" href="discover.html">' + ic('compass', 17) + 'Discover events</a>',
-      host: '<a class="button button-primary" href="wizard.html">' + ic('plus', 17) + 'Create event</a>',
-      jury: '<a class="button button-primary" href="judge.html">' + ic('scale', 17) + 'Open judge app</a>',
+      user: '<a class="button button-primary" href="host-an-event.html">' + ic('plus', 17) + 'Host an Event</a>',
       admin: '<a class="button button-primary" href="approvals.html">' + ic('shield-check', 17) + 'Open review queue</a>',
     };
     const ledes = {
-      participant: 'Your next events, tickets, and certificates \u2014 all in one place.',
-      host: 'Here\u2019s what\u2019s happening across your events today.',
-      jury: 'Your evaluation assignments and scoring progress.',
+      user: 'Your next events, tickets, and hosted events \u2014 all in one place.',
       admin: 'Platform health, review queue, and recent activity.',
     };
     return '<div class="welcome-row"><div><div class="eyebrow">' + esc(today) + '</div>'
       + '<h1>' + esc(greeting) + ', ' + esc(firstName) + '.</h1><p class="lede">' + ledes[role] + '</p></div>'
-      + (actions[role] || actions.participant) + '</div>';
+      + (actions[role] || actions.user) + '</div>';
   }
 
   /* ---------- Participant ---------- */
@@ -90,28 +85,6 @@
       + '</div>'
       + '<section class="panel">' + ui.sectionHeading({ eyebrow: 'Tell us how it went', title: 'Feedback pending' })
       + '<div class="event-list">' + feedbackRows + '</div></section>';
-  }
-
-  /* ---------- Jury ---------- */
-  function jurySection() {
-    const assignments = (D.juryAssignments || []);
-    const done = assignments.filter(function (a) { return a.status === 'Completed' || a.status === 'Scored'; }).length;
-    const stats = [
-      ui.statCard({ label: 'Assigned evaluations', value: String(assignments.length), detail: 'Across active events', icon: 'clipboard-list', accent: 'blue' }),
-      ui.statCard({ label: 'Scored', value: String(done), detail: 'Submissions finalised', icon: 'check-circle-2', accent: 'teal' }),
-      ui.statCard({ label: 'Remaining', value: String(Math.max(assignments.length - done, 0)), detail: 'Awaiting your scores', icon: 'clock-3', accent: 'amber' }),
-    ].join('');
-
-    const rows = assignments.slice(0, 5).map(function (a) {
-      return '<div class="event-row"><div class="event-row-main"><div class="event-row-title"><strong>' + esc(a.eventTitle || 'Event') + '</strong>'
-        + WM.statusChip(a.status || 'Assigned') + '</div><span>' + esc(a.expertise || 'Jury member') + '</span></div>'
-        + '<a class="button button-secondary" href="judge.html">Score ' + ic('chevron-right', 15) + '</a></div>';
-    }).join('') || '<p class="lede">No assignments yet \u2014 you will see events here once a host assigns you.</p>';
-
-    return '<div class="stat-grid compact">' + stats + '</div>'
-      + '<section class="panel">' + ui.sectionHeading({ eyebrow: 'Evaluation', title: 'Your assignments', action: '<a class="button button-primary" href="judge.html">' + ic('scale', 16) + ' Open judge app</a>' })
-      + '<div class="event-list">' + rows + '</div></section>'
-      + '<section class="panel"><div class="lede">Scores are scored against the event rubric and stay hidden from participants until results are released.</div></section>';
   }
 
   /* ---------- Admin ---------- */
@@ -254,10 +227,8 @@
     const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
     const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-    const body = role === 'participant' ? participantSection()
-      : role === 'jury' ? jurySection()
-        : role === 'admin' ? adminSection() + hostSection()
-          : hostSection();
+    const body = role === 'admin' ? adminSection() + hostSection()
+      : participantSection() + hostSection();
 
     return '<div class="page-stack">'
       + header(role, firstName, greeting, today)

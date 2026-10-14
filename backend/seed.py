@@ -1,14 +1,50 @@
-"""Initial demo data. Runs only when the users table is empty."""
+"""Initial demo data plus an idempotent account guarantee.
+
+Only two application roles exist: `admin` and `user`. The exact development
+accounts (admin/admin@123 and user@baymark.com/user@123) are ensured on every
+boot via ensure_accounts(), so the credentials never drift.
+"""
 from datetime import datetime, timedelta
 
 from extensions import db
 from models import (AiLog, AttendanceLog, AuditLog, Certificate, CheckInException, Event,
-                    EventType, Feedback, Job, JuryAssignment, MailMessage, Notification,
-                    PlatformSetting, Registration, Rubric, Score, Submission, User)
+                    EventType, Feedback, HostingRequest, Job, JuryAssignment, MailMessage,
+                    Notification, PlatformSetting, Registration, Rubric, Score, Submission,
+                    User, Volunteer)
 from utils.helpers import credential_code, refresh_event_counts, ticket_code
 from utils.security import hash_password
 
-DEMO_PASSWORD = 'waymark123'
+DOMAIN = 'baymark.com'
+
+ACCOUNTS = [
+    {'username': 'admin', 'email': 'admin@baymark.com', 'password': 'admin@123',
+     'name': 'Asha Menon', 'role': 'admin'},
+    {'username': 'user', 'email': 'user@baymark.com', 'password': 'user@123',
+     'name': 'Kiran Patel', 'role': 'user'},
+]
+
+
+def ensure_accounts():
+    """Create or repair the two required accounts. Safe to call on every boot."""
+    changed = False
+    for spec in ACCOUNTS:
+        user = User.query.filter(
+            db.or_(User.username == spec['username'], User.email == spec['email'])
+        ).first()
+        if not user:
+            user = User(name=spec['name'], email=spec['email'], role=spec['role'])
+            db.session.add(user)
+            changed = True
+        user.username = spec['username']
+        user.email = spec['email']
+        user.role = spec['role']
+        user.status = 'Active'
+        user.password_hash = hash_password(spec['password'])
+    if changed:
+        db.session.commit()
+    else:
+        db.session.commit()
+    return changed
 
 
 def seed_all():
@@ -27,44 +63,39 @@ def seed_all():
     ]):
         db.session.add(EventType(name=name, tagline=tagline, css_class=css, sort_order=i))
 
-    # ---- users ------------------------------------------------------------
-    pw = hash_password(DEMO_PASSWORD)
-    users = {}
-    specs = [
-        ('admin@waymark.dev', 'Asha Menon', 'admin', 'Active', 'Platform operations'),
-        ('host@waymark.dev', 'Devi Raman', 'host', 'Active', 'Community programs lead'),
-        ('jury@waymark.dev', 'Prof. Arjun Iyer', 'jury', 'Active', 'Systems & AI'),
-        ('meera.jury@waymark.dev', 'Meera Shah', 'jury', 'Active', 'Product design'),
-        ('member@waymark.dev', 'Kiran Patel', 'participant', 'Active', 'Frontend engineer'),
-        ('rhea@waymark.dev', 'Rhea Nair', 'participant', 'Active', 'Data analyst'),
-        ('tomas@waymark.dev', 'Tomas Fernandes', 'participant', 'Active', 'Backend engineer'),
-        ('alba@waymark.dev', 'Alba Cortes', 'participant', 'Active', 'Designer'),
-        ('jin@waymark.dev', 'Jin Zhou', 'participant', 'Invited', 'ML engineer'),
-        ('noor@waymark.dev', 'Noor Hassan', 'participant', 'Active', 'Robotics engineer'),
-    ]
-    for email, name, role, status, org in specs:
-        u = User(name=name, email=email, role=role, status=status,
-                 password_hash=pw, org=org, location='Bengaluru, India',
-                 bio='Part of the WayMark community.', email_updates=True)
-        if role == 'host':
-            u.events_count = 7
-        users[email.split('@')[0]] = u
+    # ---- users (exactly two roles: admin + user) --------------------------
+    def make_user(username, name, role, password, status='Active', org=''):
+        u = User(username=username, name=name, email=username + '@' + DOMAIN, role=role,
+                 status=status, password_hash=hash_password(password), org=org,
+                 location='Bengaluru, India', bio='Part of the WayMark community.', email_updates=True)
         db.session.add(u)
+        return u
+
+    users = {}
+    users['admin'] = make_user('admin', 'Asha Menon', 'admin', 'admin@123', org='Platform operations')
+    users['user'] = make_user('user', 'Kiran Patel', 'user', 'user@123', org='Frontend engineer')
+    users['devi'] = make_user('devi', 'Devi Raman', 'user', 'demo@1234', org='Community programs lead')
+    users['rhea'] = make_user('rhea', 'Rhea Nair', 'user', 'demo@1234', org='Data analyst')
+    users['tomas'] = make_user('tomas', 'Tomas Fernandes', 'user', 'demo@1234', org='Backend engineer')
+    users['alba'] = make_user('alba', 'Alba Cortes', 'user', 'demo@1234', org='Designer')
+    users['jin'] = make_user('jin', 'Jin Zhou', 'user', 'demo@1234', status='Invited', org='ML engineer')
+    users['noor'] = make_user('noor', 'Noor Hassan', 'user', 'demo@1234', org='Robotics engineer')
     db.session.commit()
 
-    # ---- events -----------------------------------------------------------
+    # ---- events (owned by the Normal User "Devi Raman") -------------------
     def make_event(**kw):
         e = Event(**kw)
         db.session.add(e)
         return e
 
+    devi = users['devi']
     ez = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='Zero Day Hackathon',
+        host_id=devi.id, host_name='Devi Raman', title='Zero Day Hackathon',
         category='Hackathon', description='A 24-hour build sprint for teams shipping bold ideas in AI, climate and open source.',
         date='Nov 14, 2026', time='09:00 - 21:00', location='Innovation Hub, Bengaluru',
         seats=200, status='Registration open', approval_status='Approved', tone='blue', color='#2B4BD8',
         initials='ZH', organizer='WayMark Labs', capacity_num=200, reg_deadline='Nov 10, 2026',
-        contact_email='host@waymark.dev', website='https://waymark.dev/zero-day',
+        contact_email='devi@baymark.com', website='https://waymark.dev/zero-day',
         tags=['AI', 'Climate', 'Open source'],
         agenda=[{'time': '09:00', 'title': 'Check-in & team formation'},
                 {'time': '10:00', 'title': 'Build sprint begins'},
@@ -73,64 +104,64 @@ def seed_all():
         requirements=['Team of 2-4', 'Laptop + charger', 'Valid student/work ID'],
     )
     aip = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='AI Product Sprint',
+        host_id=devi.id, host_name='Devi Raman', title='AI Product Sprint',
         category='Workshop', description='Ship an AI-assisted product slice in a weekend with mentor reviews.',
         date='Oct 24, 2026', time='10:00 - 18:00', location='T-Works Studio, Hyderabad',
         seats=60, status='Registration open', approval_status='Approved', tone='teal', color='#0E9384',
         initials='AP', organizer='WayMark Labs', capacity_num=60, reg_deadline='Oct 20, 2026',
-        contact_email='host@waymark.dev', tags=['AI', 'Product'],
+        contact_email='devi@baymark.com', tags=['AI', 'Product'],
         agenda=[{'time': '10:00', 'title': 'Kickoff & API tour'}, {'time': '14:00', 'title': 'Build & mentor reviews'}],
         requirements=['Basic JavaScript', 'Laptop'],
     )
     cfs = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='Campus Founders Summit',
+        host_id=devi.id, host_name='Devi Raman', title='Campus Founders Summit',
         category='Conference', description='Talks and panels for student founders, operators and investors.',
         date='Dec 05, 2026', time='09:30 - 17:30', location='Grand Hall, IIM Bangalore',
         seats=300, status='Registration open', approval_status='Approved', tone='purple', color='#6941C6',
         initials='CF', organizer='WayMark Labs', capacity_num=300, reg_deadline='Dec 01, 2026',
-        contact_email='host@waymark.dev', tags=['Founders', 'Startups'],
+        contact_email='devi@baymark.com', tags=['Founders', 'Startups'],
         agenda=[{'time': '09:30', 'title': 'Opening keynote'}, {'time': '11:00', 'title': 'Founder panels'}],
         requirements=['Student or founder ID'],
     )
     rrf = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='Robotics Rumble Finals',
+        host_id=devi.id, host_name='Devi Raman', title='Robotics Rumble Finals',
         category='Competition', description='The national finals for autonomous robot teams. Two arenas, one champion.',
         date='Oct 12, 2026', time='10:00 - 19:00', location='Robotics Arena, Pune',
         seats=40, status='Ongoing', approval_status='Approved', tone='orange', color='#E4780C',
         initials='RR', organizer='WayMark Labs', capacity_num=40, reg_deadline='Oct 01, 2026',
-        contact_email='host@waymark.dev', tags=['Robotics', 'Autonomy'],
+        contact_email='devi@baymark.com', tags=['Robotics', 'Autonomy'],
         agenda=[{'time': '10:00', 'title': 'Qualifiers'}, {'time': '16:00', 'title': 'Grand final'}],
         requirements=['Registered team', 'Safety gear'],
     )
     dsb = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='Design Systems Bootcamp',
+        host_id=devi.id, host_name='Devi Raman', title='Design Systems Bootcamp',
         category='Workshop', description='Two days of hands-on design systems practice: tokens, docs and governance.',
         date='Sep 20, 2026', time='09:00 - 17:00', location='Design Loft, Mumbai',
         seats=40, status='Completed', approval_status='Approved', tone='teal', color='#0E9384',
         initials='DS', organizer='WayMark Labs', capacity_num=40, reg_deadline='Sep 15, 2026',
-        contact_email='host@waymark.dev', tags=['Design', 'Systems'],
+        contact_email='devi@baymark.com', tags=['Design', 'Systems'],
         agenda=[{'time': '09:00', 'title': 'Tokens & theming'}, {'time': '13:30', 'title': 'Docs & governance'}],
         requirements=['Figma account', 'Laptop'],
         results_released=True, released_at=now - timedelta(days=3),
     )
     epc = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='Evening Pitch Circle',
+        host_id=devi.id, host_name='Devi Raman', title='Evening Pitch Circle',
         category='Community', description='A relaxed pitch night: five minutes to pitch, five minutes of feedback.',
         date='Nov 02, 2026', time='18:30 - 21:00', location='Rooftop Cafe, Indiranagar',
         seats=30, status='Draft', approval_status='Draft', tone='green', color='#067647',
         initials='EP', organizer='WayMark Labs', capacity_num=30, tags=['Pitching', 'Community'],
     )
     brj = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='Biohack Review Jam',
+        host_id=devi.id, host_name='Devi Raman', title='Biohack Review Jam',
         category='Hackathon', description='A review-focused jam where teams harden bio-tech prototypes with mentors.',
         date='Dec 18, 2026', time='09:00 - 20:00', location='Labs, IISc Bengaluru',
         seats=80, status='Pending', approval_status='Pending', tone='blue', color='#2B4BD8',
         initials='BR', organizer='WayMark Labs', capacity_num=80, reg_deadline='Dec 14, 2026',
-        contact_email='host@waymark.dev', tags=['Bio-tech', 'Mentorship'],
+        contact_email='devi@baymark.com', tags=['Bio-tech', 'Mentorship'],
         submitted_at=now - timedelta(hours=20),
     )
     ggc = make_event(
-        host_id=users['host'].id, host_name='Devi Raman', title='Green Grid Challenge',
+        host_id=devi.id, host_name='Devi Raman', title='Green Grid Challenge',
         category='Competition', description='A virtual challenge to optimise energy grids with data.',
         date='Jan 10, 2027', time='All day', location='Virtual',
         seats=150, status='Changes requested', approval_status='Changes requested', tone='orange', color='#E4780C',
@@ -154,13 +185,13 @@ def seed_all():
         return reg
 
     regs = {}
-    regs['member_ez'] = make_reg(users['member'], ez)
-    regs['member_aip'] = make_reg(users['member'], aip)
-    regs['member_rrf'] = make_reg(users['member'], rrf, status='Waitlisted', pos=3)
-    regs['member_dsb'] = make_reg(users['member'], dsb, attendance='Checked in')
-    regs['member_epc'] = make_reg(users['member'], epc)
-    regs['member_cfs'] = make_reg(users['member'], cfs, status='Offered', pos=1)
-    regs['member_cfs'].offer_expires_at = now + timedelta(hours=36)
+    regs['user_ez'] = make_reg(users['user'], ez)
+    regs['user_aip'] = make_reg(users['user'], aip)
+    regs['user_rrf'] = make_reg(users['user'], rrf, status='Waitlisted', pos=3)
+    regs['user_dsb'] = make_reg(users['user'], dsb, attendance='Checked in')
+    regs['user_epc'] = make_reg(users['user'], epc)
+    regs['user_cfs'] = make_reg(users['user'], cfs, status='Offered', pos=1)
+    regs['user_cfs'].offer_expires_at = now + timedelta(hours=36)
     regs['rhea_ez'] = make_reg(users['rhea'], ez)
     regs['rhea_rrf'] = make_reg(users['rhea'], rrf, attendance='Checked in')
     regs['rhea_dsb'] = make_reg(users['rhea'], dsb, attendance='Checked in')
@@ -186,7 +217,7 @@ def seed_all():
             timestamp=now - timedelta(hours=hours_ago),
         ))
 
-    log_attendance(regs['member_dsb'], hours_ago=200)
+    log_attendance(regs['user_dsb'], hours_ago=200)
     log_attendance(regs['rhea_dsb'], hours_ago=199)
     log_attendance(regs['tomas_dsb'], hours_ago=198)
     log_attendance(regs['alba_dsb'], hours_ago=197)
@@ -201,22 +232,22 @@ def seed_all():
         status='Open', detected_at=now - timedelta(hours=4),
     ))
 
-    # ---- jury, rubric, submissions, scores --------------------------------
+    # ---- jury (event-scoped guests, no user accounts) ---------------------
     db.session.add_all([
-        JuryAssignment(event_id=dsb.id, event_title=dsb.title, jury_member_id=users['jury'].id,
-                       jury_name='Prof. Arjun Iyer', jury_email='jury@waymark.dev',
+        JuryAssignment(event_id=dsb.id, event_title=dsb.title, jury_member_id='',
+                       jury_name='Prof. Arjun Iyer', jury_email='arjun@baymark.com',
                        expertise='Systems & AI', assigned_tracks=['Design infra', 'Tooling'],
                        status='Completed', guest_token='jury-design-9f2a'),
-        JuryAssignment(event_id=dsb.id, event_title=dsb.title, jury_member_id=users['meera.jury'].id,
-                       jury_name='Meera Shah', jury_email='meera.jury@waymark.dev',
+        JuryAssignment(event_id=dsb.id, event_title=dsb.title, jury_member_id='',
+                       jury_name='Meera Shah', jury_email='meera@baymark.com',
                        expertise='Product design', assigned_tracks=['Motion', 'Brand'],
                        status='Completed', guest_token='jury-design-4b7c'),
         JuryAssignment(event_id=dsb.id, event_title=dsb.title, jury_member_id='',
-                       jury_name='Demo Judge', jury_email='demo.judge@waymark.dev',
+                       jury_name='Demo Judge', jury_email='demo.judge@baymark.com',
                        expertise='Guest reviewer', assigned_tracks=[],
                        status='Active', guest_token='demo-jury'),
-        JuryAssignment(event_id=rrf.id, event_title=rrf.title, jury_member_id=users['jury'].id,
-                       jury_name='Prof. Arjun Iyer', jury_email='jury@waymark.dev',
+        JuryAssignment(event_id=rrf.id, event_title=rrf.title, jury_member_id='',
+                       jury_name='Prof. Arjun Iyer', jury_email='arjun@baymark.com',
                        expertise='Robotics', assigned_tracks=['Autonomy'],
                        status='Active', guest_token='jury-robotics-4c1b'),
     ])
@@ -246,16 +277,16 @@ def seed_all():
     db.session.commit()
 
     score_sets = [
-        ('Team Lumen', 'Prof. Arjun Iyer', users['jury'].id, [9, 9, 10, 9], 9.2, 'Sharp, production-ready work.'),
-        ('Team Lumen', 'Meera Shah', users['meera.jury'].id, [9, 10, 9, 9], 9.3, 'Beautiful motion polish.'),
-        ('Foxtail', 'Prof. Arjun Iyer', users['jury'].id, [8, 9, 7, 8], 8.1, 'Strong accessibility coverage.'),
-        ('Foxtail', 'Meera Shah', users['meera.jury'].id, [8, 8, 8, 8], 8.0, 'Clear documentation.'),
-        ('Northstar', 'Prof. Arjun Iyer', users['jury'].id, [7, 8, 9, 8], 7.9, 'Great narrative, thin tests.'),
-        ('Northstar', 'Meera Shah', users['meera.jury'].id, [8, 8, 8, 9], 8.2, 'Smooth handoff story.'),
-        ('Bandwidth', 'Prof. Arjun Iyer', users['jury'].id, [7, 7, 7, 8], 7.1, 'Solid tooling direction.'),
-        ('Bandwidth', 'Meera Shah', users['meera.jury'].id, [7, 7, 8, 7], 7.2, 'Needs more user testing.'),
-        ('Kiln', 'Prof. Arjun Iyer', users['jury'].id, [6, 7, 7, 7], 6.7, 'Early but promising.'),
-        ('Kiln', 'Meera Shah', users['meera.jury'].id, [7, 7, 6, 7], 6.8, 'Tighten the icon grid.'),
+        ('Team Lumen', 'Prof. Arjun Iyer', 'seed-juror-1', [9, 9, 10, 9], 9.2, 'Sharp, production-ready work.'),
+        ('Team Lumen', 'Meera Shah', 'seed-juror-2', [9, 10, 9, 9], 9.3, 'Beautiful motion polish.'),
+        ('Foxtail', 'Prof. Arjun Iyer', 'seed-juror-1', [8, 9, 7, 8], 8.1, 'Strong accessibility coverage.'),
+        ('Foxtail', 'Meera Shah', 'seed-juror-2', [8, 8, 8, 8], 8.0, 'Clear documentation.'),
+        ('Northstar', 'Prof. Arjun Iyer', 'seed-juror-1', [7, 8, 9, 8], 7.9, 'Great narrative, thin tests.'),
+        ('Northstar', 'Meera Shah', 'seed-juror-2', [8, 8, 8, 9], 8.2, 'Smooth handoff story.'),
+        ('Bandwidth', 'Prof. Arjun Iyer', 'seed-juror-1', [7, 7, 7, 8], 7.1, 'Solid tooling direction.'),
+        ('Bandwidth', 'Meera Shah', 'seed-juror-2', [7, 7, 8, 7], 7.2, 'Needs more user testing.'),
+        ('Kiln', 'Prof. Arjun Iyer', 'seed-juror-1', [6, 7, 7, 7], 6.7, 'Early but promising.'),
+        ('Kiln', 'Meera Shah', 'seed-juror-2', [7, 7, 6, 7], 6.8, 'Tighten the icon grid.'),
     ]
     for team, juror, juror_id, values, total, comment in score_sets:
         db.session.add(Score(
@@ -267,9 +298,57 @@ def seed_all():
         ))
         sub_rows[team].status = 'Scored'
 
+    # ---- hosting requests (Host an Event workflow) ------------------------
+    db.session.add_all([
+        HostingRequest(
+            user_id=users['user'].id, requester_name='Kiran Patel', requester_email='user@baymark.com',
+            title='Open Source Maintainers Meetup', category='Community',
+            description='A casual evening for maintainers to swap war stories and grow contributor communities.',
+            date='Jan 22, 2027', time='18:00 - 21:00', location='Cubbon Pavilion, Bengaluru',
+            organizer='Kiran Patel', contact_email='user@baymark.com', seats=60, fee='Free',
+            tags=['Open source', 'Community'], status='Pending', submitted_at=now - timedelta(hours=6),
+        ),
+        HostingRequest(
+            user_id=users['devi'].id, requester_name='Devi Raman', requester_email='devi@baymark.com',
+            title='Cloud Native Deep Dive', category='Workshop',
+            description='Hands-on Kubernetes and observability lab for platform engineers.',
+            date='Feb 08, 2027', time='09:30 - 17:00', location='Tech Park, Bengaluru',
+            organizer='Devi Raman', contact_email='devi@baymark.com', seats=80, fee='Free',
+            tags=['Cloud', 'Platform'], status='Changes requested',
+            decision_reason='Please share the lab prerequisites and a rough run-sheet.',
+            decided_by='Asha Menon', decided_at=now - timedelta(days=1),
+            submitted_at=now - timedelta(days=3),
+        ),
+        HostingRequest(
+            user_id=users['rhea'].id, requester_name='Rhea Nair', requester_email='rhea@baymark.com',
+            title='Data Storytelling Night', category='Community',
+            description='Short talks on turning dashboards into decisions.',
+            date='Mar 02, 2027', time='19:00 - 21:00', location='Rooftop Cafe, Indiranagar',
+            organizer='Rhea Nair', contact_email='rhea@baymark.com', seats=40, fee='Free',
+            tags=['Data', 'Talks'], status='Approved', decided_by='Asha Menon',
+            decided_at=now - timedelta(days=1), submitted_at=now - timedelta(days=4),
+        ),
+    ])
+
+    # ---- volunteers (event-scoped, invite links) --------------------------
+    db.session.add_all([
+        Volunteer(event_id=ez.id, event_title=ez.title, name='Sana Kapoor',
+                  email='sana@baymark.com', phone='+91 90000 11111', department='Registration desk',
+                  responsibility='Check-in scanner & badge printing', shift_date='Nov 14, 2026',
+                  shift_time='08:00 - 12:00', status='Confirmed', invite_token='vol-zero-11aa'),
+        Volunteer(event_id=ez.id, event_title=ez.title, name='Rahul Verma',
+                  email='rahul@baymark.com', department='Logistics',
+                  responsibility='Manage refreshments and booth supplies', shift_date='Nov 14, 2026',
+                  shift_time='12:00 - 18:00', status='Invited', invite_token='vol-zero-22bb'),
+        Volunteer(event_id=rrf.id, event_title=rrf.title, name='Ishita Roy',
+                  email='ishita@baymark.com', department='Arena crew',
+                  responsibility='Robot safety checks and pit coordination', shift_date='Oct 12, 2026',
+                  shift_time='09:00 - 19:00', status='Active', invite_token='vol-rr-33cc'),
+    ])
+
     # ---- feedback ---------------------------------------------------------
     db.session.add_all([
-        Feedback(event_id=dsb.id, event_title=dsb.title, user_id=users['member'].id, user_name='Kiran Patel',
+        Feedback(event_id=dsb.id, event_title=dsb.title, user_id=users['user'].id, user_name='Kiran Patel',
                  overall_rating=5, content_rating=5, organization_rating=4, venue_rating=4,
                  what_worked='Hands-on token exercises and the mentor feedback loops.',
                  what_didnt='Afternoon sessions felt rushed.', would_recommend=True, attend_again=True,
@@ -286,10 +365,10 @@ def seed_all():
 
     # ---- certificates -----------------------------------------------------
     certs = []
-    for email, name in [('member', 'Kiran Patel'), ('rhea', 'Rhea Nair'),
-                        ('tomas', 'Tomas Fernandes'), ('alba', 'Alba Cortes')]:
+    for key, name in [('user', 'Kiran Patel'), ('rhea', 'Rhea Nair'),
+                      ('tomas', 'Tomas Fernandes'), ('alba', 'Alba Cortes')]:
         cert = Certificate(
-            recipient_name=name, recipient_id=users[email].id, event_id=dsb.id,
+            recipient_name=name, recipient_id=users[key].id, event_id=dsb.id,
             event_title=dsb.title, issue_date='Sep 21, 2026',
             credential_id=credential_code(), issuer='WayMark Events',
             type='Participation', status='Valid',
@@ -299,24 +378,27 @@ def seed_all():
 
     # ---- notifications ----------------------------------------------------
     db.session.add_all([
-        Notification(user_id=users['member'].id, title='Results released',
+        Notification(user_id=users['user'].id, title='Results released',
                      message='Results for Design Systems Bootcamp are now live.',
                      type='certificate', created_at=now - timedelta(days=3)),
-        Notification(user_id=users['member'].id, title='Certificate ready',
+        Notification(user_id=users['user'].id, title='Certificate ready',
                      message='Your certificate for Design Systems Bootcamp is available.',
                      type='certificate', created_at=now - timedelta(days=3)),
-        Notification(user_id=users['member'].id, title='Waitlist offer',
+        Notification(user_id=users['user'].id, title='Waitlist offer',
                      message='A seat opened up for Campus Founders Summit. Accept before the offer expires.',
                      type='reminder', created_at=now - timedelta(hours=12)),
-        Notification(user_id=users['member'].id, title='Registration confirmed',
+        Notification(user_id=users['user'].id, title='Registration confirmed',
                      message='You are confirmed for Zero Day Hackathon. Ticket issued.',
                      type='reminder', read=True, created_at=now - timedelta(days=14)),
-        Notification(user_id=users['host'].id, title='Event submitted for review',
+        Notification(user_id=users['devi'].id, title='Event submitted for review',
                      message='Biohack Review Jam is awaiting approval.', type='approval',
                      created_at=now - timedelta(hours=20)),
         Notification(user_id=users['admin'].id, title='Event submitted for review',
                      message='Biohack Review Jam is awaiting approval.', type='approval',
                      created_at=now - timedelta(hours=20)),
+        Notification(user_id=users['admin'].id, title='New hosting request',
+                     message='Kiran Patel requested to host Open Source Maintainers Meetup.',
+                     type='approval', created_at=now - timedelta(hours=6)),
     ])
 
     # ---- jobs & mail outbox -----------------------------------------------
@@ -337,30 +419,30 @@ def seed_all():
     db.session.commit()
 
     db.session.add_all([
-        MailMessage(to_email='member@waymark.dev', subject='Your WayMark password reset code',
+        MailMessage(to_email='user@baymark.com', subject='Your WayMark password reset code',
                     body='Hi Kiran Patel,\n\nYour password reset code is: 000000\n\nIt expires in 15 minutes.\n\n- WayMark',
                     kind='otp', status='Stored',
                     error='Email not configured - message kept in the in-app outbox.',
                     created_at=now - timedelta(hours=30)),
-        MailMessage(to_email='member@waymark.dev', from_email='WayMark <no-reply@waymark.dev>',
+        MailMessage(to_email='user@baymark.com', from_email='WayMark <no-reply@baymark.com>',
                     subject='Registration confirmed: Zero Day Hackathon',
                     body='Hi Kiran Patel,\n\nYou are confirmed for Zero Day Hackathon.\nTicket: see your registrations.',
                     kind='message', status='Stored',
                     error='Email not configured - message kept in the in-app outbox.',
                     job_id=job1.id, created_at=now - timedelta(days=14)),
-        MailMessage(to_email='member@waymark.dev', from_email='WayMark <no-reply@waymark.dev>',
+        MailMessage(to_email='user@baymark.com', from_email='WayMark <no-reply@baymark.com>',
                     subject='Results released: Design Systems Bootcamp',
                     body='Results for Design Systems Bootcamp have been released.',
                     kind='system', status='Stored',
                     error='Email not configured - message kept in the in-app outbox.',
                     job_id=job2.id, created_at=now - timedelta(days=3)),
-        MailMessage(to_email='member@waymark.dev', from_email='WayMark <no-reply@waymark.dev>',
+        MailMessage(to_email='user@baymark.com', from_email='WayMark <no-reply@baymark.com>',
                     subject='Your certificate for Design Systems Bootcamp is ready',
                     body='Your certificate is ready. Credential ID: ' + certs[0].credential_id,
                     kind='certificate', status='Stored',
                     error='Email not configured - message kept in the in-app outbox.',
                     created_at=now - timedelta(days=3)),
-        MailMessage(to_email='member@waymark.dev', from_email='WayMark <no-reply@waymark.dev>',
+        MailMessage(to_email='user@baymark.com', from_email='WayMark <no-reply@baymark.com>',
                     subject='A seat opened up for Campus Founders Summit',
                     body='A spot just opened for Campus Founders Summit. Accept your waitlist offer before it expires.',
                     kind='reminder', status='Stored',
@@ -379,6 +461,7 @@ def seed_all():
         ('Checked in', 'Devi Raman', 'Noor Hassan @ Zero Day Hackathon', 'Success', 2),
         ('Job retry failed', 'Asha Menon', 'Reminder - AI Product Sprint', 'Failed', 5),
         ('Waitlist offer accepted', 'Kiran Patel', 'Campus Founders Summit', 'Success', 12),
+        ('Hosting request submitted', 'Kiran Patel', 'Open Source Maintainers Meetup', 'Success', 6),
     ]
     for action, user, target, status, hours in audit_specs:
         db.session.add(AuditLog(action=action, user=user, target=target, status=status,
@@ -404,7 +487,7 @@ def seed_all():
     # ---- platform settings --------------------------------------------------
     db.session.add(PlatformSetting(id=1, data={
         'platformName': 'WayMark',
-        'supportEmail': 'support@waymark.dev',
+        'supportEmail': 'support@baymark.com',
         'timezone': 'Asia/Kolkata (GMT+5:30)',
         'defaultRubricName': 'Standard judging rubric',
         'certificateIssuer': 'WayMark Events',

@@ -50,9 +50,9 @@
       }
 
       return heading + '<form class="auth-form" id="login-form" novalidate>'
-        + '<div class="field-group"><label for="email">Email address</label>'
-        + '<div class="auth-input' + (state.errors.email ? ' input-error' : '') + '">' + ic('mail', 17)
-        + '<input id="email" type="email" placeholder="you@example.com" autocomplete="email" value="' + esc(state.email) + '" /> </div>'
+        + '<div class="field-group"><label for="email">Email or username</label>'
+        + '<div class="auth-input' + (state.errors.email ? ' input-error' : '') + '">' + ic('user', 17)
+        + '<input id="email" type="text" placeholder="you@example.com or admin" autocomplete="username" value="' + esc(state.email) + '" /> </div>'
         + (state.errors.email ? '<span class="field-error">' + esc(state.errors.email) + '</span>' : '') + '</div>'
         + '<div class="field-group"><div class="field-label-row"><label for="password">Password</label>'
         + '<a href="password-reset.html">Forgot password?</a></div>'
@@ -74,8 +74,10 @@
 
     function validate() {
       const e = {};
-      if (!state.email.trim()) e.email = 'Enter the email address you use for WayMark.';
-      else if (!/^\S+@\S+\.\S+$/.test(state.email)) e.email = 'Enter a valid email address.';
+      const v = state.email.trim();
+      if (!v) e.email = 'Enter the email or username you use for WayMark.';
+      else if (v.indexOf('@') !== -1 && !/^\S+@\S+\.\S+$/.test(v)) e.email = 'Enter a valid email address.';
+      else if (v.indexOf('@') === -1 && v.length < 3) e.email = 'Enter your username.';
       if (!state.password) e.password = 'Enter your password.';
       else if (state.password.length < 8) e.password = 'Your password must be at least 8 characters.';
       return e;
@@ -122,7 +124,7 @@
   /* ===================== Signup (form) ===================== */
   function signupForm() {
     const state = {
-      fullName: '', email: '', password: '', showPassword: false, role: '', agree: false,
+      fullName: '', email: '', password: '', showPassword: false, role: 'user', agree: false,
       errors: {}, status: 'idle', statusMsg: '', loading: false, success: false,
     };
 
@@ -132,17 +134,6 @@
           + '<h3>Welcome to WayMark.</h3><p>' + esc(state.statusMsg) + '</p>'
           + '<a class="button button-primary" href="login.html">Continue to sign in ' + ic('arrow-right', 16) + '</a></div>';
       }
-      const roleOptions = [
-        ['participant', 'Participant', 'Discover and join events'],
-        ['host', 'Event host', 'Create and manage events'],
-        ['jury', 'Jury member', 'Evaluate event submissions'],
-        ['admin', 'Administrator', 'Approve and oversee events'],
-      ].map(function (r) {
-        const sel = state.role === r[0];
-        return '<button type="button" class="form-radio-card' + (sel ? ' form-radio-selected' : '') + '" data-radio="su-role" data-value="' + r[0] + '">'
-          + '<span class="form-radio-dot' + (sel ? ' form-radio-dot-on' : '') + '"></span>'
-          + '<div><strong>' + r[1] + '</strong><small>' + r[2] + '</small></div></button>';
-      }).join('');
 
       return '<form class="auth-form" id="signup-form" novalidate>'
         + WM.forms.textField({ id: 'su-name', label: 'Full name', value: state.fullName, placeholder: 'Maya Chen', required: true, error: state.errors.fullName, icon: ic('user', 16) })
@@ -152,9 +143,6 @@
         + '<input id="su-pw" type="' + (state.showPassword ? 'text' : 'password') + '" placeholder="Minimum 8 characters" value="' + esc(state.password) + '" data-field="su-pw" />'
         + '<button type="button" class="password-toggle" id="su-pw-toggle">' + (state.showPassword ? ic('eye-off', 16) : ic('eye', 16)) + '</button></div>'
         + (state.errors.password ? '<span class="field-error">' + esc(state.errors.password) + '</span>' : '') + '</div>'
-        + '<div class="form-field-group">' + WM.forms.fieldLabel('How will you use WayMark?', true)
-        + '<div class="form-radio-grid form-radio-cols-2">' + roleOptions + '</div>'
-        + (state.errors.role ? '<span class="field-error">' + esc(state.errors.role) + '</span>' : '') + '</div>'
         + '<div class="form-field-group">' + WM.forms.toggleField({ id: 'su-agree', label: 'I agree to the WayMark terms and privacy policy', checked: state.agree, hint: 'You can review the full terms before continuing.' })
         + (state.errors.agree ? '<span class="field-error">' + esc(state.errors.agree) + '</span>' : '') + '</div>'
         + WM.forms.formStatus(state.status, state.statusMsg)
@@ -170,7 +158,6 @@
       else if (!/^\S+@\S+\.\S+$/.test(state.email)) e.email = 'Enter a valid email address.';
       if (!state.password) e.password = 'Password is required.';
       else if (state.password.length < 8) e.password = 'Password must be at least 8 characters.';
-      if (!state.role) e.role = 'Please select how you plan to use WayMark.';
       if (!state.agree) e.agree = 'You must agree to the terms to continue.';
       return e;
     }

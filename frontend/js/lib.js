@@ -15,10 +15,8 @@
 
     roleKey(role) {
       const r = String(role || '').toLowerCase();
-      if (r === 'host' || r === 'event host') return 'host';
-      if (r === 'jury' || r === 'jury member') return 'jury';
       if (r === 'admin' || r === 'administrator') return 'admin';
-      return 'participant';
+      return 'user';
     },
 
     isAuthenticated() {
@@ -32,7 +30,7 @@
     },
 
     getRole() {
-      return localStorage.getItem(this.STORAGE_KEY_ROLE) || 'participant';
+      return localStorage.getItem(this.STORAGE_KEY_ROLE) || 'user';
     },
 
     setUser(user) {
@@ -475,54 +473,60 @@
    * Layout (ports layout/AppLayout.tsx)                                 *
    * ------------------------------------------------------------------ */
   const rolesConfig = {
-    participant: { label: 'Personal workspace', avatar: 'MC', color: 'avatar-cream' },
-    host: { label: 'Host workspace', avatar: 'MC', color: 'avatar-terracotta' },
-    jury: { label: 'Jury workspace', avatar: 'SL', color: 'avatar-blue' },
-    admin: { label: 'Admin workspace', avatar: 'JL', color: 'avatar-green' },
+    user: { label: 'Normal user workspace', avatar: 'NU', color: 'avatar-cream' },
+    admin: { label: 'Admin workspace', avatar: 'AD', color: 'avatar-green' },
   };
 
   const menuGroups = [
     {
       label: 'Workspace', items: [
-        { label: 'Overview', icon: 'layout-dashboard', path: '/', href: 'index.html', roles: ['participant', 'host', 'jury', 'admin'] },
-        { label: 'Discover events', icon: 'calendar-days', path: '/discover', href: 'discover.html', roles: ['participant', 'host', 'admin'] },
-        { label: 'My registrations', icon: 'ticket-check', path: '/registrations', href: 'registrations.html', roles: ['participant'] },
-        { label: 'My certificates', icon: 'award', path: '/my-certificates', href: 'my-certificates.html', roles: ['participant'] },
-        { label: 'History', icon: 'history', path: '/history', href: 'history.html', roles: ['participant'] },
-        { label: 'My events', icon: 'clipboard-list', path: '/events', href: 'events.html', roles: ['host', 'admin'] },
-        { label: 'Event workspace', icon: 'layout-panel-left', path: '/workspace', href: 'workspace.html', roles: ['host', 'admin'] },
+        { label: 'Overview', icon: 'layout-dashboard', path: '/', href: 'index.html', roles: ['user', 'admin'] },
+        { label: 'Discover events', icon: 'calendar-days', path: '/discover', href: 'discover.html', roles: ['user', 'admin'] },
+        { label: 'My registrations', icon: 'ticket-check', path: '/registrations', href: 'registrations.html', roles: ['user', 'admin'] },
+        { label: 'My certificates', icon: 'award', path: '/my-certificates', href: 'my-certificates.html', roles: ['user', 'admin'] },
+        { label: 'History', icon: 'history', path: '/history', href: 'history.html', roles: ['user', 'admin'] },
+        { label: 'My events', icon: 'clipboard-list', path: '/events', href: 'events.html', roles: ['user', 'admin'] },
+        { label: 'Event workspace', icon: 'layout-panel-left', path: '/workspace', href: 'workspace.html', roles: ['user', 'admin'] },
       ],
     },
     {
-      label: 'Hosting', items: [
-        { label: 'Create event', icon: 'plus', path: '/wizard', href: 'wizard.html', roles: ['host', 'admin'] },
-        { label: 'Results & release', icon: 'trophy', path: '/results', href: 'results.html', roles: ['host', 'admin'] },
-        { label: 'Reports & exports', icon: 'file-bar-chart', path: '/reports', href: 'reports.html', roles: ['host', 'admin'] },
-        { label: 'Messages & jobs', icon: 'send', path: '/messages', href: 'messages.html', roles: ['host', 'admin'] },
-        { label: 'Exceptions', icon: 'shield-alert', path: '/exceptions', href: 'exceptions.html', roles: ['host', 'admin'] },
+      label: 'Host an event', items: [
+        { label: 'Host an Event', icon: 'plus', path: '/host-an-event', href: 'host-an-event.html', roles: ['user', 'admin'] },
+        { label: 'My hosted events', icon: 'clipboard-list', path: '/my-hosted-events', href: 'my-hosted-events.html', roles: ['user'] },
+        { label: 'Hosting requests', icon: 'inbox', path: '/hosting-requests', href: 'hosting-requests.html', roles: ['admin'] },
+        { label: 'Create event', icon: 'file-plus', path: '/wizard', href: 'wizard.html', roles: ['admin'] },
+      ],
+    },
+    {
+      label: 'Hosting operations', items: [
+        { label: 'Volunteer management', icon: 'users', path: '/volunteers', href: 'volunteers.html', roles: ['user', 'admin'] },
+        { label: 'Results & release', icon: 'trophy', path: '/results', href: 'results.html', roles: ['user', 'admin'] },
+        { label: 'Reports & exports', icon: 'file-bar-chart', path: '/reports', href: 'reports.html', roles: ['user', 'admin'] },
+        { label: 'Messages & jobs', icon: 'send', path: '/messages', href: 'messages.html', roles: ['user', 'admin'] },
+        { label: 'Exceptions', icon: 'shield-alert', path: '/exceptions', href: 'exceptions.html', roles: ['user', 'admin'] },
       ],
     },
     {
       label: 'Evaluation', items: [
-        { label: 'Jury panel', icon: 'scale', path: '/forms/jury-management', href: 'forms-jury-management.html', roles: ['host', 'admin'] },
-        { label: 'Rubric builder', icon: 'list-checks', path: '/forms/rubric', href: 'forms-rubric.html', roles: ['host', 'admin'] },
-        { label: 'Judge scoring app', icon: 'smartphone', path: '/judge', href: 'judge.html', roles: ['jury', 'host', 'admin'] },
-        { label: 'Scanner app', icon: 'scan-line', path: '/scanner', href: 'scanner.html', roles: ['host', 'admin'] },
-        { label: 'Attendance check-in', icon: 'clipboard-check', path: '/forms/attendance', href: 'forms-attendance.html', roles: ['host', 'admin'] },
-        { label: 'All forms & workflows', icon: 'layout-dashboard', path: '/forms', href: 'forms.html', roles: ['participant', 'host', 'jury', 'admin'] },
+        { label: 'Jury panel', icon: 'scale', path: '/forms/jury-management', href: 'forms-jury-management.html', roles: ['user', 'admin'] },
+        { label: 'Rubric builder', icon: 'list-checks', path: '/forms/rubric', href: 'forms-rubric.html', roles: ['user', 'admin'] },
+        { label: 'Judge scoring app', icon: 'smartphone', path: '/judge', href: 'judge.html', roles: ['user', 'admin'] },
+        { label: 'Scanner app', icon: 'scan-line', path: '/scanner', href: 'scanner.html', roles: ['user', 'admin'] },
+        { label: 'Attendance check-in', icon: 'clipboard-check', path: '/forms/attendance', href: 'forms-attendance.html', roles: ['user', 'admin'] },
+        { label: 'All forms & workflows', icon: 'layout-dashboard', path: '/forms', href: 'forms.html', roles: ['user', 'admin'] },
       ],
     },
     {
       label: 'Account', items: [
-        { label: 'Notifications', icon: 'bell', count: 3, path: '/notifications', href: 'notifications.html', roles: ['participant', 'host', 'jury', 'admin'] },
-        { label: 'Profile', icon: 'user-round', path: '/profile', href: 'profile.html', roles: ['participant', 'host', 'jury', 'admin'] },
+        { label: 'Notifications', icon: 'bell', count: 3, path: '/notifications', href: 'notifications.html', roles: ['user', 'admin'] },
+        { label: 'Profile', icon: 'user-round', path: '/profile', href: 'profile.html', roles: ['user', 'admin'] },
       ],
     },
     {
       label: 'Administration', items: [
         { label: 'Review queue', icon: 'shield-check', count: 8, path: '/approvals', href: 'approvals.html', roles: ['admin'] },
         { label: 'Users', icon: 'users', path: '/users', href: 'users.html', roles: ['admin'] },
-        { label: 'Activity & audit', icon: 'activity', path: '/audit', href: 'audit.html', roles: ['admin', 'host'] },
+        { label: 'Activity & audit', icon: 'activity', path: '/audit', href: 'audit.html', roles: ['admin'] },
         { label: 'Jobs & failed sends', icon: 'list-x', path: '/admin-jobs', href: 'admin-jobs.html', roles: ['admin'] },
         { label: 'AI log', icon: 'sparkles', path: '/ai-log', href: 'ai-log.html', roles: ['admin'] },
         { label: 'Platform settings', icon: 'settings-2', path: '/settings', href: 'settings.html', roles: ['admin'] },
@@ -533,7 +537,7 @@
   function renderLayout(route, contentHTML) {
     const user = AUTH.getUser();
     const currentRole = AUTH.getRole();
-    const roleInfo = rolesConfig[currentRole] || rolesConfig.participant;
+    const roleInfo = rolesConfig[currentRole] || rolesConfig.user;
     const userInitials = user && user.name ? initials(user.name) : 'MC';
 
     const allItems = menuGroups.reduce((acc, g) => acc.concat(g.items), []);
@@ -554,10 +558,8 @@
     }).join('');
 
     const roleOptions = [
-      ['participant', 'user-round', 'Personal Workspace'],
-      ['host', 'clipboard-list', 'Host Workspace'],
-      ['jury', 'scale', 'Jury Workspace'],
-      ['admin', 'shield-check', 'Admin Workspace'],
+      ['user', 'user-round', 'Normal User'],
+      ['admin', 'shield-check', 'Admin'],
     ].map((r) => '<button class="role-option' + (currentRole === r[0] ? ' active-role' : '')
       + '" data-switch-role="' + r[0] + '">' + ic(r[1], 15) + ' ' + r[2] + '</button>').join('');
 
@@ -600,11 +602,11 @@
 
   function mobileBottomNav(currentRole) {
     const items = [
-      { label: 'Events', icon: 'calendar-days', href: 'discover.html', roles: ['participant', 'host', 'admin'] },
-      { label: 'Tickets', icon: 'ticket-check', href: 'registrations.html', roles: ['participant'] },
-      { label: 'Plus', icon: 'plus-circle', href: 'wizard.html', roles: ['host', 'admin'] },
-      { label: 'Alerts', icon: 'bell', href: 'notifications.html', roles: ['participant', 'host', 'jury', 'admin'] },
-      { label: 'Me', icon: 'user-round', href: 'profile.html', roles: ['participant', 'host', 'jury', 'admin'] },
+      { label: 'Events', icon: 'calendar-days', href: 'discover.html', roles: ['user', 'admin'] },
+      { label: 'Tickets', icon: 'ticket-check', href: 'registrations.html', roles: ['user', 'admin'] },
+      { label: 'Host', icon: 'plus-circle', href: 'host-an-event.html', roles: ['user', 'admin'] },
+      { label: 'Alerts', icon: 'bell', href: 'notifications.html', roles: ['user', 'admin'] },
+      { label: 'Me', icon: 'user-round', href: 'profile.html', roles: ['user', 'admin'] },
     ].filter(function (i) { return i.roles.indexOf(currentRole) !== -1; }).slice(0, 4);
     return '<nav class="bottom-nav" aria-label="Primary">' + items.map(function (i) {
       return '<a href="' + i.href + '" class="bottom-nav-item">' + ic(i.icon, 20) + '<span>' + esc(i.label) + '</span></a>';
@@ -687,7 +689,9 @@
     });
 
     const createBtn = document.getElementById('create-event-btn');
-    if (createBtn) createBtn.addEventListener('click', function () { openModal(createEventModalHTML()); });
+    if (createBtn) createBtn.addEventListener('click', function () {
+      window.location.href = AUTH.getRole() === 'admin' ? 'wizard.html' : 'host-an-event.html';
+    });
 
     const themeBtn = document.getElementById('theme-toggle');
     if (themeBtn) themeBtn.addEventListener('click', function () { theme.toggle(); });

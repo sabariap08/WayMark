@@ -4,10 +4,10 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify
 
 from extensions import db
-from models import (AttendanceLog, AuditLog, Certificate, Event, Feedback, Job,
-                    JuryAssignment, Notification, Registration, Score, User)
+from models import (AttendanceLog, AuditLog, Certificate, Event, Feedback, HostingRequest,
+                    Job, JuryAssignment, Notification, Registration, Score, User)
 from utils.helpers import CATEGORY_META, humanize
-from utils.security import current_user
+from utils.security import current_user, is_admin
 from utils.serializers import event_json
 
 dashboard_bp = Blueprint('dashboard', __name__)
@@ -49,43 +49,21 @@ def _trend():
 
 
 def _stats_for(user):
-    role = (user.role if user else 'participant') or 'participant'
-    if role == 'host':
-        my_events = Event.query.filter_by(host_id=user.id).all()
-        event_ids = [e.id for e in my_events]
-        regs = Registration.query.filter(Registration.event_id.in_(event_ids)).count() if event_ids else 0
-        checkins = AttendanceLog.query.filter(AttendanceLog.event_id.in_(event_ids)).count() if event_ids else 0
-        pending = Event.query.filter(Event.host_id == user.id, Event.status == 'Pending').count()
-        return [
-            {'label': 'My events', 'value': str(len(my_events)), 'detail': 'Across all statuses', 'icon': 'calendar', 'accent': 'blue'},
-            {'label': 'Registrations', 'value': str(regs), 'detail': 'On your events', 'icon': 'ticket', 'accent': 'teal'},
-            {'label': 'Check-ins', 'value': str(checkins), 'detail': 'Across live events', 'icon': 'users', 'accent': 'green'},
-            {'label': 'Pending review', 'value': str(pending), 'detail': 'Awaiting approval', 'icon': 'award', 'accent': 'amber'},
-        ]
-    if role == 'jury':
-        from models import Submission
-        assignments = JuryAssignment.query.filter_by(jury_member_id=user.id).all()
-        subs_count = 0
-        for a in assignments:
-            subs_count += Submission.query.filter_by(event_id=a.event_id).count()
-        scored = Score.query.filter_by(jury_member_id=user.id).count()
-        return [
-            {'label': 'Assigned evaluations', 'value': str(subs_count), 'detail': 'Across active events', 'icon': 'calendar', 'accent': 'blue'},
-            {'label': 'Scored', 'value': str(scored), 'detail': 'Submissions finalised', 'icon': 'ticket', 'accent': 'teal'},
-            {'label': 'Remaining', 'value': str(max(subs_count - scored, 0)), 'detail': 'Awaiting your scores', 'icon': 'users', 'accent': 'amber'},
-        ]
-    if role == 'admin':
+    if is_admin(user):
         pending = Event.query.filter(Event.status == 'Pending').count()
+        hosting = HostingRequest.query.filter_by(status='Pending').count()
         failed_jobs = Job.query.filter_by(status='Failed').count()
         return [
             {'label': 'Awaiting review', 'value': str(pending), 'detail': 'Events needing a decision', 'icon': 'calendar', 'accent': 'amber'},
-            {'label': 'Failed jobs', 'value': str(failed_jobs), 'detail': 'Check jobs & failed sends', 'icon': 'ticket', 'accent': 'rose'},
-            {'label': 'Platform events', 'value': str(Event.query.count()), 'detail': 'Across all hosts', 'icon': 'award', 'accent': 'blue'},
+            {'label': 'Hosting requests', 'value': str(hosting), 'detail': 'Pending host submissions', 'icon': 'ticket', 'accent': 'blue'},
+            {'label': 'Failed jobs', 'value': str(failed_jobs), 'detail': 'Check jobs & failed sends', 'icon': 'alert', 'accent': 'rose'},
             {'label': 'Users', 'value': str(User.query.count()), 'detail': 'Registered accounts', 'icon': 'users', 'accent': 'teal'},
         ]
     regs = Registration.query.filter_by(user_id=user.id).all() if user else []
     upcoming = [r for r in regs if r.status in ('Confirmed', 'Registered')]
     waitlisted = [r for r in regs if r.status in ('Waitlisted', 'Offered')]
+    hosted = Event.query.filter_by(host_id=user.id).count() if user else 0
+    hosting_requests = HostingRequest.query.filter_by(user_id=user.id).count() if user else 0
     certs = Certificate.query.filter(db.or_(Certificate.recipient_id == (user.id if user else ''),
                                             Certificate.recipient_name == (user.name if user else '')),
                                      Certificate.status == 'Valid').count()
@@ -95,7 +73,7 @@ def _stats_for(user):
     return [
         {'label': 'Upcoming events', 'value': str(len(upcoming)), 'detail': 'Next: ' + (upcoming[0].event_title if upcoming else 'Nothing scheduled yet'), 'icon': 'calendar', 'accent': 'blue'},
         {'label': 'Waitlist', 'value': str(len(waitlisted)), 'detail': 'Offers expire in 48h' if waitlisted else 'No waitlist entries', 'icon': 'ticket', 'accent': 'amber'},
-        {'label': 'Certificates ready', 'value': str(certs), 'detail': 'Ready to download & verify', 'icon': 'award', 'accent': 'teal'},
+        {'label': 'My hosted events', 'value': str(hosted), 'detail': str(hosting_requests) + ' hosting request(s)', 'icon': 'award', 'accent': 'teal'},
         {'label': 'Feedback pending', 'value': str(pending_feedback), 'detail': 'Events awaiting your review', 'icon': 'users', 'accent': 'rose'},
     ]
 
@@ -103,16 +81,10 @@ def _stats_for(user):
 def _quick_actions(role):
     if role == 'admin':
         return [{'label': 'Review pending events', 'detail': 'Decide on submissions'},
-                {'label': 'Check failed jobs', 'detail': 'Retry email sends'},
+                {'label': 'Review hosting requests', 'detail': 'Approve or reject host-submitted events'},
                 {'label': 'Open audit log', 'detail': 'Recent platform activity'}]
-    if role == 'host':
-        return [{'label': 'Create a new event', 'detail': 'Start the 5-step wizard'},
-                {'label': 'Open event workspace', 'detail': 'Registrations, attendance, results'},
-                {'label': 'Compose a message', 'detail': 'Email your registrants'}]
-    if role == 'jury':
-        return [{'label': 'Open scoring app', 'detail': 'Score assigned submissions'},
-                {'label': 'Review the rubric', 'detail': 'Criteria and weights'}]
     return [{'label': 'Discover events', 'detail': 'Find something to join'},
+            {'label': 'Host an event', 'detail': 'Submit a hosting request'},
             {'label': 'View my registrations', 'detail': 'Tickets and QR passes'},
             {'label': 'Download certificates', 'detail': 'After attending events'}]
 
@@ -120,16 +92,16 @@ def _quick_actions(role):
 @dashboard_bp.route('/dashboard', methods=['GET'])
 def overview():
     user = current_user()
-    role = (user.role if user else 'participant') or 'participant'
+    role = 'admin' if is_admin(user) else 'user'
 
-    if role == 'host':
-        events = Event.query.filter_by(host_id=user.id).order_by(Event.created_at.desc()).limit(8).all()
-    elif role == 'participant':
-        regs = Registration.query.filter_by(user_id=user.id).all() if user else []
-        event_ids = [r.event_id for r in regs]
-        events = Event.query.filter(Event.id.in_(event_ids)).order_by(Event.created_at.desc()).limit(8).all() if event_ids else []
-    else:
+    if is_admin(user):
         events = Event.query.order_by(Event.created_at.desc()).limit(8).all()
+    else:
+        regs = Registration.query.filter_by(user_id=user.id).all() if user else []
+        event_ids = {r.event_id for r in regs} if user else set()
+        hosted_ids = {e.id for e in Event.query.filter_by(host_id=user.id).all()} if user else set()
+        all_ids = list(event_ids | hosted_ids)
+        events = Event.query.filter(Event.id.in_(all_ids)).order_by(Event.created_at.desc()).limit(8).all() if all_ids else []
 
     category_counts = {}
     for e in Event.query.all():

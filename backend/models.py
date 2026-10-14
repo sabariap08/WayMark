@@ -19,8 +19,9 @@ class User(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=gen_id)
     name = db.Column(db.String(160), nullable=False)
     email = db.Column(db.String(200), unique=True, nullable=False, index=True)
+    username = db.Column(db.String(80), unique=True, index=True, default=None)
     password_hash = db.Column(db.String(300), default='')
-    role = db.Column(db.String(20), default='participant')       # participant | host | jury | admin
+    role = db.Column(db.String(20), default='user')              # admin | user  (only two application roles)
     status = db.Column(db.String(20), default='Active')          # Active | Invited | Suspended
     events_count = db.Column(db.Integer, default=0)
     phone = db.Column(db.String(40), default='')
@@ -162,6 +163,73 @@ class JuryAssignment(db.Model):
     assigned_tracks = db.Column(db.JSON, default=list)
     status = db.Column(db.String(30), default='Active')           # Active | Completed | Invited
     guest_token = db.Column(db.String(60), unique=True, default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class HostingRequest(db.Model):
+    """A Normal User's request to host an event. Admin must approve before it
+    becomes a real Event. This is the 'Host an Event' workflow - not a role."""
+    __tablename__ = 'wm_hosting_requests'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    user_id = db.Column(db.String(36), index=True, default='')
+    requester_name = db.Column(db.String(160), default='')
+    requester_email = db.Column(db.String(200), default='')
+
+    title = db.Column(db.String(220), nullable=False)
+    category = db.Column(db.String(80), default='Community')
+    description = db.Column(db.Text, default='')
+    banner_url = db.Column(db.String(400), default='')
+    date = db.Column(db.String(60), default='')
+    end_date = db.Column(db.String(60), default='')
+    time = db.Column(db.String(60), default='')
+    location = db.Column(db.String(220), default='')
+    venue = db.Column(db.String(220), default='')
+    online_url = db.Column(db.String(300), default='')
+    organizer = db.Column(db.String(160), default='')
+    contact_email = db.Column(db.String(200), default='')
+    contact_phone = db.Column(db.String(60), default='')
+    website = db.Column(db.String(220), default='')
+    seats = db.Column(db.Integer, default=100)
+    reg_open = db.Column(db.String(60), default='')
+    reg_deadline = db.Column(db.String(60), default='')
+    eligibility = db.Column(db.Text, default='')
+    fee = db.Column(db.String(80), default='Free')
+    rules = db.Column(db.Text, default='')
+    staffing = db.Column(db.Text, default='')
+    documents = db.Column(db.String(400), default='')
+    tags = db.Column(db.JSON, default=list)
+    agenda = db.Column(db.JSON, default=list)
+    requirements = db.Column(db.JSON, default=list)
+
+    status = db.Column(db.String(30), default='Pending')          # Pending | Approved | Rejected | Changes requested | Cancelled
+    decision_reason = db.Column(db.Text, default='')
+    decided_by = db.Column(db.String(160), default='')
+    event_id = db.Column(db.String(36), default='')              # set once approved -> real Event
+    submitted_at = db.Column(db.DateTime, default=utcnow)
+    decided_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+
+
+class Volunteer(db.Model):
+    """Volunteer records are event-scoped assignments, not an application role.
+    Only an admin or the event's host may manage them."""
+    __tablename__ = 'wm_volunteers'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    event_title = db.Column(db.String(220), default='')
+    name = db.Column(db.String(160), default='')
+    email = db.Column(db.String(200), default='')
+    phone = db.Column(db.String(60), default='')
+    department = db.Column(db.String(120), default='')
+    responsibility = db.Column(db.String(200), default='')
+    shift_date = db.Column(db.String(60), default='')
+    shift_time = db.Column(db.String(60), default='')
+    status = db.Column(db.String(30), default='Invited')         # Invited | Confirmed | Active | Removed
+    invite_token = db.Column(db.String(60), unique=True, default='')
+    notes = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=utcnow)
 
 

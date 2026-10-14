@@ -47,8 +47,8 @@ class Config:
     SMTP_PORT = int(_env('SMTP_PORT', '587'))
     SMTP_USER = _env('SMTP_USER')
     SMTP_PASSWORD = _env('SMTP_PASSWORD')
-    SMTP_FROM = _env('SMTP_FROM', 'WayMark <no-reply@waymark.dev>')
+    SMTP_FROM = _env('SMTP_FROM', 'WayMark <no-reply@baymark.com>')
 
-    DEMO_USER_EMAIL = _env('DEMO_USER_EMAIL', 'admin@waymark.dev')
+    DEMO_USER_EMAIL = _env('DEMO_USER_EMAIL', 'user@baymark.com')
 
     FRONTEND_DIR = os.path.abspath(os.path.join(BACKEND_DIR, '..', 'frontend'))

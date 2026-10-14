@@ -278,6 +278,8 @@ const cards = filtered.map(function (event) {
 
   /* ===================== Approvals ===================== */
   function approvals() {
+    const state = { hosting: [], busy: '' };
+
     function pendingEvents() {
       return D.events.filter(function (e) {
         const s = e.approvalStatus || '';
@@ -285,8 +287,28 @@ const cards = filtered.map(function (event) {
       });
     }
 
+    function hostingRows() {
+      const pending = state.hosting.filter(function (r) { return r.status === 'Pending'; });
+      if (!pending.length) {
+        return '<p class="lede">No hosting requests are waiting for review.</p>';
+      }
+      return pending.map(function (r) {
+        const busy = state.busy === r.id;
+        return '<div class="table-row">'
+          + '<div class="table-event"><div class="mini-thumb bg-indigo-600">' + esc(eventInitials(r.title)) + '</div>'
+          + '<div><strong>' + esc(r.title) + '</strong><small>' + esc(r.category || 'Event') + '</small></div></div>'
+          + '<span>' + esc(r.requesterName || 'User') + '</span>'
+          + '<span>' + esc(r.date || r.submittedAt || '') + '</span>'
+          + ui.badge('Pending', 'amber')
+          + '<div class="row-actions-cell"><button class="button button-primary" data-h-approve="' + esc(r.id) + '"' + (busy ? ' disabled' : '') + '>Approve</button>'
+          + '<button class="button button-secondary" data-h-changes="' + esc(r.id) + '"' + (busy ? ' disabled' : '') + '>Request changes</button>'
+          + '<button class="button button-ghost" data-h-reject="' + esc(r.id) + '"' + (busy ? ' disabled' : '') + '>Reject</button></div></div>';
+      }).join('');
+    }
+
     function render() {
       const rows = pendingEvents();
+      const pendingHosting = state.hosting.filter(function (r) { return r.status === 'Pending'; });
       const body = rows.map(function (event, index) {
         const rejected = event.approvalStatus === 'Rejected';
         return '<div class="table-row">'
@@ -298,18 +320,65 @@ const cards = filtered.map(function (event) {
       }).join('');
 
       return '<div class="page-stack">'
-        + ui.sectionHeading({ eyebrow: 'Admin workspace', title: 'Approval queue', action: '<a class="button button-secondary" href="forms-approval.html">Review form ' + ic('chevron-right', 15) + '</a>' })
+        + ui.sectionHeading({ eyebrow: 'Admin workspace', title: 'Approval queue', action: '<a class="button button-secondary" href="hosting-requests.html">Hosting requests ' + ic('chevron-right', 15) + '</a>' })
         + '<div class="queue-callout"><div class="callout-icon">' + ic('shield-check', 20) + '</div>'
-        + '<div><strong>' + rows.length + ' events need your review</strong><span>Review content, eligibility, and certificate settings before publishing.</span></div>'
+        + '<div><strong>' + (rows.length + pendingHosting.length) + ' items need your review</strong><span>Approve hosting requests and review event submissions before publishing.</span></div>'
         + '<a class="button button-secondary" href="forms-approval.html">View guidelines</a></div>'
-        + '<div class="search-toolbar compact-toolbar"><label class="search-field">' + ic('search', 18)
-        + '<input placeholder="Search by title, host, or event type" /></label>'
-        + '<button class="button button-secondary">All statuses ' + ic('chevron-down', 15) + '</button></div>'
-        + '<section class="panel table-panel">' + tableHead(['Event', 'Host', 'Submitted', 'Status', '']) + body + '</section>'
+        + '<section class="panel table-panel">' + ui.sectionHeading({ eyebrow: 'Host an Event', title: 'Hosting requests' })
+        + tableHead(['Event', 'Requester', 'Date', 'Status', '']) + hostingRows() + '</section>'
+        + '<section class="panel table-panel">' + ui.sectionHeading({ eyebrow: 'Moderation', title: 'Event submissions' })
+        + tableHead(['Event', 'Host', 'Submitted', 'Status', '']) + body + '</section>'
         + '</div>';
     }
 
-    WM.page({ route: '/approvals', render: render, load: LOAD });
+    function refresh() { WM.refreshContent(render); wire(); }
+
+    function reloadHosting() {
+      return global.WMApi.hosting.list().then(function (list) {
+        state.hosting = Array.isArray(list) ? list : [];
+        refresh();
+      });
+    }
+
+    function hostAct(id, fn, okMsg) {
+      state.busy = id; refresh();
+      return fn().then(function () { state.busy = ''; WM.toast(okMsg); return reloadHosting(); },
+        function (err) { state.busy = ''; refresh(); WM.toast((err && err.message) || 'Action failed.', 'error'); });
+    }
+
+    function wire() {
+      document.querySelectorAll('[data-h-approve]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          const id = b.getAttribute('data-h-approve');
+          hostAct(id, function () { return global.WMApi.hosting.approve(id, { status: 'Registration open' }); }, 'Hosting request approved — the event is now live.');
+        });
+      });
+      document.querySelectorAll('[data-h-reject]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          const id = b.getAttribute('data-h-reject');
+          const reason = global.prompt('Reason for rejecting this hosting request (optional):', '');
+          if (reason === null) return;
+          hostAct(id, function () { return global.WMApi.hosting.reject(id, { reason: reason }); }, 'Hosting request rejected.');
+        });
+      });
+      document.querySelectorAll('[data-h-changes]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          const id = b.getAttribute('data-h-changes');
+          const reason = global.prompt('What changes should the requester make?', '');
+          if (reason === null) return;
+          hostAct(id, function () { return global.WMApi.hosting.requestChanges(id, { reason: reason }); }, 'Change request sent.');
+        });
+      });
+    }
+
+    function load() {
+      return Promise.all([
+        LOAD(),
+        global.WMApi.hosting.list().then(function (list) { state.hosting = Array.isArray(list) ? list : []; }, function () { state.hosting = []; }),
+      ]);
+    }
+
+    WM.page({ route: '/approvals', render: render, mounted: wire, load: load });
   }
 
   /* ===================== Notifications ===================== */
@@ -395,7 +464,7 @@ const cards = filtered.map(function (event) {
         + '<div class="search-toolbar compact-toolbar"><label class="search-field">' + ic('search', 18)
         + '<input id="user-search" value="' + esc(state.search) + '" placeholder="Search users by name or email..." /></label>'
         + '<label class="select-field">' + ic('filter', 17) + '<select id="user-role">'
-        + ['All roles', 'Participant', 'Host', 'Jury', 'Administrator'].map(function (r) { return '<option' + (r === state.role ? ' selected' : '') + '>' + r + '</option>'; }).join('')
+        + ['All roles', 'Normal User', 'Admin'].map(function (r) { return '<option' + (r === state.role ? ' selected' : '') + '>' + r + '</option>'; }).join('')
         + '</select>' + ic('chevron-down', 16) + '</label></div>'
         + '<section class="panel table-panel">' + tableHead(['User', 'Role', 'Status', 'Events', 'Joined']) + rows + '</section>'
         + '</div>';

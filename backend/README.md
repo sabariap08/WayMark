@@ -36,26 +36,36 @@ All values are optional; working defaults ship in `config.py`. Override with a
 ## Database behaviour
 
 - Supabase is the primary database. Tables are created automatically; if the
-  `wm_users` table is empty, the full demo dataset is seeded (10 users, 8 events,
-  18 registrations, scores, certificates, jobs, mails, audit logs...).
+  `wm_users` table is empty, the full demo dataset is seeded (8 users, 8 events,
+  18 registrations, hosting requests, volunteers, scores, certificates, jobs,
+  mails, audit logs...).
 - The Supabase direct host resolves to IPv6. On networks without IPv6 the
   connection times out and the app transparently falls back to the bundled
   SQLite file (freshly seeded), so demos never break. Both paths are covered by
   the endpoint test pass.
 
+## Roles
+
+Exactly two application roles exist: **Admin** and **Normal User**. Any signed-in
+user may submit a *hosting request* ("Host an Event"); an Admin approves it into
+a live event owned by that user. Jury members and volunteers are **event-scoped
+guests** reached through scoped invite links — they are never a role and never
+create a user account.
+
 ## Demo logins
 
-Password for all seeded accounts: `waymark123`
+| Username | Email | Password | Role |
+| --- | --- | --- | --- |
+| `admin` | `admin@baymark.com` | `admin@123` | Admin |
+| `user` | `user@baymark.com` | `user@123` | Normal User |
 
-| Email | Role |
-| --- | --- |
-| `admin@waymark.dev` | Admin |
-| `host@waymark.dev` | Host |
-| `jury@waymark.dev` | Jury |
-| `member@waymark.dev` | Participant |
-| `rhea@waymark.dev`, `tomas@waymark.dev`, `alba@waymark.dev`, `jin@waymark.dev`, `noor@waymark.dev`, `meera.jury@waymark.dev` | Mixed demo users |
+Other seeded users (`devi`, `rhea`, `tomas`, `alba`, `jin`, `noor` @ `baymark.com`)
+share the password `demo@1234`. Login accepts an email **or** a username. The
+two exact accounts above are re-applied on every boot by `ensure_accounts()`.
 
-Guest jury tokens (no login): `demo-jury`, `jury-design-9f2a`, `jury-robotics-4c1b`.
+Guest links (no login): jury tokens `demo-jury`, `jury-design-9f2a`,
+`jury-design-4b7c`, `jury-robotics-4c1b`; volunteer tokens `vol-zero-11aa`,
+`vol-zero-22bb`, `vol-rr-33cc` (open `judge.html?token=…` / `volunteer.html?token=…`).
 
 ## Email & OTP
 
@@ -73,8 +83,11 @@ Guest jury tokens (no login): `demo-jury`, `jury-design-9f2a`, `jury-robotics-4c
 - `events`: CRUD, submit/approve/request-changes, workspace payload, jobs,
   results, leaderboard, certificates generate/list, reports per format
 - `registrations`: register, cancel, waitlist accept/decline, host override
+- `hosting-requests`: submit, list, get, update, resubmit, cancel, admin
+  approve / reject / request-changes (approval creates the owned event)
+- `volunteers`: event-scoped volunteer CRUD + invite link (`?token=`)
 - `attendance`: checkin (scanner), undo, exceptions
-- `jury`, `rubrics`, `submissions`, `scores`: judging pipeline
+- `jury`, `rubrics`, `submissions`, `scores`: judging pipeline (jury = guests)
 - `feedback`, `certificates` (+ public `verify/<code>`), `notifications`
 - `dashboard`: role-aware payloads, `audit`, `leaderboard`
 - `reports`: `GET /events/<id>/reports/<kind>?format=csv|pdf|xlsx`
@@ -82,7 +95,7 @@ Guest jury tokens (no login): `demo-jury`, `jury-design-9f2a`, `jury-robotics-4c
 - `messages`: in-app outbox, event send to audiences, resend
 - `admin`: jobs (retry), ai-logs, users, events, mail, settings
 - `ai`: draft-event, draft-message, summarise-feedback, ask (deterministic local)
-- `guest`: jury guest activation
+- `guest`: jury **and** volunteer guest-link activation (scoped tokens)
 
 Errors are always `{ "message": "..." }` with a matching HTTP status; frontend
 `api.js` surfaces that text in toasts.

@@ -47,23 +47,32 @@ def _token_from_request():
 
 
 def resolve_user(allow_demo=True):
-    """Return (user, claims). Falls back to the seeded demo user when no
-    token is supplied so the frontend can browse without logging in."""
+    """Return (user, claims). Falls back to the seeded demo *normal user* (never
+    an admin) only when NO token is supplied at all, so unauthenticated demo
+    browsing can never reach admin APIs. A token that is present but unresolved
+    (invalid, expired, or a scoped guest link) never gains demo privileges."""
     token = _token_from_request()
-    claims = decode_token(token) if token else None
-    if claims:
+    if token:
+        claims = decode_token(token)
+        if not claims:
+            return None, None
         user = User.query.get(claims.get('sub'))
-        if user:
-            return user, claims
+        return (user, claims) if user else (None, claims)
     if allow_demo:
-        email = current_app.config.get('DEMO_USER_EMAIL') or 'admin@waymark.dev'
+        email = current_app.config.get('DEMO_USER_EMAIL') or 'user@baymark.com'
         user = User.query.filter_by(email=email).first()
         if not user:
-            user = User.query.filter_by(role='admin').first()
+            user = User.query.filter_by(role='user', status='Active').first()
         if not user:
-            user = User.query.first()
+            user = User.query.filter_by(role='user').first()
         return user, None
     return None, None
+
+
+def current_claims():
+    if not hasattr(g, '_wm_user'):
+        g._wm_user = resolve_user()
+    return g._wm_user[1]
 
 
 def current_user():
@@ -91,6 +100,55 @@ def require_role(*roles):
                 return jsonify({'message': 'Authentication required.'}), 401
             if roles and user.role not in roles:
                 return jsonify({'message': 'You do not have permission for this action.'}), 403
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def role_key(user):
+    return (user.role or 'user').lower() if user else ''
+
+
+def is_admin(user):
+    return bool(user) and role_key(user) == 'admin'
+
+
+def can_manage_event(user, event):
+    """True when the user is an admin, or owns (hosts) the given event."""
+    if is_admin(user):
+        return True
+    return bool(user and event and event.host_id and event.host_id == user.id)
+
+
+def require_admin(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user = current_user()
+        if not user:
+            return jsonify({'message': 'Authentication required.'}), 401
+        if not is_admin(user):
+            return jsonify({'message': 'Administrator access is required for this action.'}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def require_event_manager(event_id_arg='event_id'):
+    """Decorator factory: the request must target an event the caller owns or
+    the caller must be an admin. Injects the Event as kwarg `_event`."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            from models import Event
+            user = current_user()
+            if not user:
+                return jsonify({'message': 'Authentication required.'}), 401
+            event_id = kwargs.get(event_id_arg) or (args[0] if args else None)
+            event = Event.query.get(event_id) if event_id else None
+            if not event:
+                return jsonify({'message': 'Event not found.'}), 404
+            if not can_manage_event(user, event):
+                return jsonify({'message': 'You can only manage events you host.'}), 403
+            kwargs['_event'] = event
             return fn(*args, **kwargs)
         return wrapper
     return decorator
