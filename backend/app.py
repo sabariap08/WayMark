@@ -65,11 +65,13 @@ def register_blueprints(app):
     from blueprints.messages import messages_bp
     from blueprints.ai import ai_bp
     from blueprints.guest import guest_bp
+    from blueprints.hosting import hosting_bp
+    from blueprints.volunteers import volunteers_bp
 
     for bp in (auth_bp, meta_bp, users_bp, events_bp, registrations_bp, attendance_bp,
                jury_bp, rubrics_bp, submissions_bp, scores_bp, feedback_bp, certificates_bp,
                notifications_bp, audit_bp, dashboard_bp, leaderboard_bp, reports_bp,
-               admin_bp, messages_bp, ai_bp, guest_bp):
+               admin_bp, messages_bp, ai_bp, guest_bp, hosting_bp, volunteers_bp):
         app.register_blueprint(bp, url_prefix='/api')
 
 
@@ -135,9 +137,10 @@ def create_app():
         return error
 
     with app.app_context():
-        from seed import seed_all
+        from seed import seed_all, ensure_accounts
         db.create_all()
         seeded = seed_all()
+        ensure_accounts()
         app.extensions['wm_seeded'] = seeded
 
     return app
@@ -161,11 +164,10 @@ def main():
     print('  Open     : http://127.0.0.1:' + str(port) + '/')
     print('  API      : http://127.0.0.1:' + str(port) + '/api/health')
     print('  ------------------------------------------------')
-    print('  Demo logins (password: waymark123)')
-    print('    admin@waymark.dev     - admin')
-    print('    host@waymark.dev      - host')
-    print('    jury@waymark.dev      - jury')
-    print('    member@waymark.dev    - participant')
+    print('  Two roles: Admin + Normal User')
+    print('  Demo logins')
+    print('    admin            / admin@123   (Admin)')
+    print('    user@baymark.com / user@123    (Normal User)')
     print('  ------------------------------------------------')
     print('')
     app.run(host='0.0.0.0', port=port, debug=False)

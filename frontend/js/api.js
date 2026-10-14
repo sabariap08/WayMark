@@ -263,6 +263,26 @@
       resend: function (id) { return post('/messages/' + encodeURIComponent(id) + '/resend'); },
     },
 
+    hosting: {
+      list: function (params) { return get('/hosting-requests', params); },
+      get: function (id) { return get('/hosting-requests/' + encodeURIComponent(id)); },
+      create: function (data) { return post('/hosting-requests', data); },
+      update: function (id, data) { return put('/hosting-requests/' + encodeURIComponent(id), data); },
+      resubmit: function (id, data) { return post('/hosting-requests/' + encodeURIComponent(id) + '/resubmit', data); },
+      cancel: function (id, data) { return post('/hosting-requests/' + encodeURIComponent(id) + '/cancel', data); },
+      approve: function (id, data) { return post('/hosting-requests/' + encodeURIComponent(id) + '/approve', data); },
+      reject: function (id, data) { return post('/hosting-requests/' + encodeURIComponent(id) + '/reject', data); },
+      requestChanges: function (id, data) { return post('/hosting-requests/' + encodeURIComponent(id) + '/request-changes', data); },
+    },
+
+    volunteers: {
+      list: function (params) { return get('/volunteers', params); },
+      create: function (data) { return post('/volunteers', data); },
+      update: function (id, data) { return put('/volunteers/' + encodeURIComponent(id), data); },
+      remove: function (id) { return del('/volunteers/' + encodeURIComponent(id)); },
+      invite: function (id) { return post('/volunteers/' + encodeURIComponent(id) + '/invite'); },
+    },
+
     guest: {
       activate: function (token) {
         return post('/guest/activate', { token: token }).then(function (data) {

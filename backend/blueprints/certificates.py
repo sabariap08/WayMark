@@ -7,7 +7,7 @@ from extensions import db
 from models import Certificate, Event, Registration
 from utils.helpers import audit, credential_code, notify
 from utils.mailer import send_mail
-from utils.security import current_user
+from utils.security import can_manage_event, current_user, is_admin
 from utils.serializers import certificate_json
 
 certificates_bp = Blueprint('certificates', __name__)
@@ -20,9 +20,11 @@ def list_certificates():
     query = Certificate.query
     if event_id:
         query = query.filter_by(event_id=event_id)
-    if user and user.role not in ('host', 'admin') and not event_id:
-        query = query.filter(db.or_(Certificate.recipient_id == user.id,
-                                    Certificate.recipient_name == user.name))
+    if not is_admin(user):
+        manage = bool(user and event_id and can_manage_event(user, Event.query.get(event_id)))
+        if not manage:
+            query = query.filter(db.or_(Certificate.recipient_id == (user.id if user else ''),
+                                        Certificate.recipient_name == (user.name if user else '')))
     rows = query.order_by(Certificate.issue_date.desc()).all()
     return jsonify([certificate_json(c) for c in rows])
 
@@ -34,6 +36,8 @@ def issue_certificate():
     event = Event.query.get(event_id)
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
+    if not can_manage_event(current_user(), event):
+        return jsonify({'message': 'Only the event host or an admin can issue certificates.'}), 403
 
     recipient_id = str(payload.get('recipientId') or '')
     registration = None
@@ -75,6 +79,8 @@ def withdraw_certificate(cert_id):
     cert = Certificate.query.get(cert_id)
     if not cert:
         return jsonify({'message': 'Certificate not found.'}), 404
+    if not can_manage_event(current_user(), Event.query.get(cert.event_id)):
+        return jsonify({'message': 'Only the event host or an admin can withdraw a certificate.'}), 403
     payload = request.get_json(silent=True) or {}
     cert.status = 'Withdrawn'
     cert.withdrawn_at = datetime.utcnow()

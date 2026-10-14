@@ -8,7 +8,7 @@ from models import CheckInException, Event, Registration
 from utils.helpers import (audit, notify, parse_bool, promote_waitlist, refresh_event_counts,
                            ticket_code)
 from utils.mailer import send_mail
-from utils.security import current_user
+from utils.security import can_manage_event, current_user, is_admin
 from utils.serializers import registration_json
 
 registrations_bp = Blueprint('registrations', __name__)
@@ -32,9 +32,13 @@ def list_registrations():
     event_id = request.args.get('eventId')
     if event_id:
         query = query.filter_by(event_id=event_id)
-    if user and user.role not in ('host', 'admin'):
-        query = query.filter_by(user_id=user.id)
-    elif user and user.role in ('host', 'admin') and not event_id and not parse_bool(request.args.get('all')):
+    if not is_admin(user):
+        manage = False
+        if user and event_id:
+            manage = can_manage_event(user, Event.query.get(event_id))
+        if not manage:
+            query = query.filter_by(user_id=(user.id if user else ''))
+    elif not event_id and not parse_bool(request.args.get('all')):
         query = query.filter_by(user_id=user.id)
     rows = query.order_by(Registration.registered_at.desc()).all()
     return jsonify([registration_json(r) for r in rows])
@@ -104,9 +108,9 @@ def cancel_registration(reg_id):
     reg = Registration.query.get(reg_id)
     if not reg:
         return jsonify({'message': 'Registration not found.'}), 404
-    if user and user.role == 'participant' and reg.user_id != user.id:
-        return jsonify({'message': 'You can only cancel your own registration.'}), 403
     event = Event.query.get(reg.event_id)
+    if not (user and reg.user_id == user.id) and not can_manage_event(user, event):
+        return jsonify({'message': 'You can only cancel your own registration.'}), 403
     reg.status = 'Cancelled'
     db.session.commit()
     if event:
@@ -158,6 +162,8 @@ def accept_offer(reg_id):
     reg = Registration.query.get(reg_id)
     if not reg:
         return jsonify({'message': 'Registration not found.'}), 404
+    if not (user and reg.user_id == user.id) and not can_manage_event(user, Event.query.get(reg.event_id)):
+        return jsonify({'message': 'This registration is not yours.'}), 403
     if reg.status not in ('Offered', 'Waitlisted'):
         return jsonify({'message': 'No waitlist offer is active for this registration.'}), 409
     event = Event.query.get(reg.event_id)
@@ -192,6 +198,8 @@ def decline_offer(reg_id):
     reg = Registration.query.get(reg_id)
     if not reg:
         return jsonify({'message': 'Registration not found.'}), 404
+    if not (user and reg.user_id == user.id) and not can_manage_event(user, Event.query.get(reg.event_id)):
+        return jsonify({'message': 'This registration is not yours.'}), 403
     reg.status = 'Declined'
     reg.offer_expires_at = None
     db.session.commit()
@@ -209,6 +217,8 @@ def override_registration(reg_id):
     reg = Registration.query.get(reg_id)
     if not reg:
         return jsonify({'message': 'Registration not found.'}), 404
+    if not can_manage_event(user, Event.query.get(reg.event_id)):
+        return jsonify({'message': 'Only the event host or an admin can override a registration.'}), 403
     payload = request.get_json(silent=True) or {}
     reason = str(payload.get('reason') or payload.get('note') or '')
     if payload.get('status'):
