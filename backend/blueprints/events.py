@@ -166,6 +166,8 @@ def submit_event(event_id):
 @events_bp.route('/events/<event_id>/approve', methods=['POST'])
 def approve_event(event_id):
     user = current_user()
+    if not user:
+        return jsonify({'message': 'Authentication required.'}), 401
     if not is_admin(user):
         return jsonify({'message': 'Only an administrator can approve events.'}), 403
     event = Event.query.get(event_id)

@@ -58,7 +58,7 @@ def resolve_user(allow_demo=True):
             return None, None
         user = User.query.get(claims.get('sub'))
         return (user, claims) if user else (None, claims)
-    if allow_demo:
+    if allow_demo and current_app.config.get('DEMO_AUTH', True):
         email = current_app.config.get('DEMO_USER_EMAIL') or 'user@baymark.com'
         user = User.query.filter_by(email=email).first()
         if not user:
@@ -69,14 +69,22 @@ def resolve_user(allow_demo=True):
     return None, None
 
 
+def _identity_cache_key():
+    return _token_from_request() or ''
+
+
 def current_claims():
-    if not hasattr(g, '_wm_user'):
+    key = _identity_cache_key()
+    if not hasattr(g, '_wm_user') or getattr(g, '_wm_token', None) != key:
+        g._wm_token = key
         g._wm_user = resolve_user()
     return g._wm_user[1]
 
 
 def current_user():
-    if not hasattr(g, '_wm_user'):
+    key = _identity_cache_key()
+    if not hasattr(g, '_wm_user') or getattr(g, '_wm_token', None) != key:
+        g._wm_token = key
         g._wm_user = resolve_user()
     return g._wm_user[0]
 

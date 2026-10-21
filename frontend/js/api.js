@@ -52,8 +52,13 @@
       credentials: opts.credentials || 'same-origin',
     };
     if (body !== undefined) {
-      headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
+      const isForm = typeof global.FormData !== 'undefined' && body instanceof global.FormData;
+      if (isForm) {
+        init.body = body; // browser sets the multipart boundary
+      } else {
+        headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(body);
+      }
     }
 
     return global.fetch(BASE + path, init).then(function (res) {
@@ -281,6 +286,151 @@
       update: function (id, data) { return put('/volunteers/' + encodeURIComponent(id), data); },
       remove: function (id) { return del('/volunteers/' + encodeURIComponent(id)); },
       invite: function (id) { return post('/volunteers/' + encodeURIComponent(id) + '/invite'); },
+    },
+
+    scheduling: {
+      sessions: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/sessions', params); },
+      createSession: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/sessions', data); },
+      session: function (id) { return get('/sessions/' + encodeURIComponent(id)); },
+      updateSession: function (id, data) { return patch('/sessions/' + encodeURIComponent(id), data); },
+      removeSession: function (id) { return del('/sessions/' + encodeURIComponent(id)); },
+      venues: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/venues', params); },
+      createVenue: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/venues', data); },
+      updateVenue: function (id, data) { return patch('/venues/' + encodeURIComponent(id), data); },
+      removeVenue: function (id) { return del('/venues/' + encodeURIComponent(id)); },
+      resources: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/resources', params); },
+      createResource: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/resources', data); },
+      updateResource: function (id, data) { return patch('/resources/' + encodeURIComponent(id), data); },
+      removeResource: function (id) { return del('/resources/' + encodeURIComponent(id)); },
+      board: function (eventId) { return get('/events/' + encodeURIComponent(eventId) + '/schedule'); },
+      validate: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/schedule/validate', data || {}); },
+      conflicts: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/conflicts', params); },
+      resolveConflict: function (id, data) { return post('/conflicts/' + encodeURIComponent(id) + '/resolve', data || {}); },
+      dismissConflict: function (id, data) { return post('/conflicts/' + encodeURIComponent(id) + '/dismiss', data || {}); },
+      applyConflict: function (id, data) { return post('/conflicts/' + encodeURIComponent(id) + '/apply', data || {}); },
+      bookings: function (sessionId, params) { return get('/sessions/' + encodeURIComponent(sessionId) + '/bookings', params); },
+      createBooking: function (sessionId, data) { return post('/sessions/' + encodeURIComponent(sessionId) + '/bookings', data); },
+      removeBooking: function (id) { return del('/bookings/' + encodeURIComponent(id)); },
+    },
+
+    operations: {
+      board: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/operations', params); },
+      incidents: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/incidents', params); },
+      createIncident: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/incidents', data); },
+      updateIncident: function (id, data) { return patch('/incidents/' + encodeURIComponent(id), data); },
+      removeIncident: function (id) { return del('/incidents/' + encodeURIComponent(id)); },
+      sessionChanges: function (sessionId, data) { return post('/sessions/' + encodeURIComponent(sessionId) + '/changes', data || {}); },
+    },
+
+    tasks: {
+      list: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/tasks', params); },
+      create: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/tasks', data); },
+      update: function (id, data) { return patch('/tasks/' + encodeURIComponent(id), data); },
+      remove: function (id) { return del('/tasks/' + encodeURIComponent(id)); },
+      assign: function (id, data) { return post('/tasks/' + encodeURIComponent(id) + '/assign', data || {}); },
+      dependencies: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/tasks/dependencies', params); },
+      recommendations: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/volunteers/recommendations', params); },
+      logHours: function (eventId, volunteerId, data) { return post('/events/' + encodeURIComponent(eventId) + '/volunteers/' + encodeURIComponent(volunteerId) + '/hours', data || {}); },
+    },
+
+    finance: {
+      budgetCategories: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/budget/categories', params); },
+      createBudgetCategory: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/budget/categories', data); },
+      updateBudgetCategory: function (id, data) { return patch('/budget/categories/' + encodeURIComponent(id), data); },
+      removeBudgetCategory: function (id) { return del('/budget/categories/' + encodeURIComponent(id)); },
+      budgetLines: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/budget/lines', params); },
+      createBudgetLine: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/budget/lines', data); },
+      updateBudgetLine: function (id, data) { return patch('/budget/lines/' + encodeURIComponent(id), data); },
+      removeBudgetLine: function (id) { return del('/budget/lines/' + encodeURIComponent(id)); },
+      budgetSummary: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/budget/summary', params); },
+      budgetScenarios: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/budget/scenarios', params); },
+      createBudgetScenario: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/budget/scenarios', data || {}); },
+      sponsors: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/sponsors', params); },
+      createSponsor: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/sponsors', data); },
+      updateSponsor: function (id, data) { return patch('/sponsors/' + encodeURIComponent(id), data); },
+      removeSponsor: function (id) { return del('/sponsors/' + encodeURIComponent(id)); },
+      setDeliverables: function (id, data) { return put('/sponsors/' + encodeURIComponent(id) + '/deliverables', data || {}); },
+      sponsorReport: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/sponsor-report', params); },
+    },
+
+    plans: {
+      status: function () { return get('/ai/status'); },
+      generate: function (data) { return post('/plans/generate', data || {}); },
+      list: function (params) { return get('/plans', params); },
+      get: function (id) { return get('/plans/' + encodeURIComponent(id)); },
+      update: function (id, data) { return patch('/plans/' + encodeURIComponent(id), data); },
+      remove: function (id) { return del('/plans/' + encodeURIComponent(id)); },
+      preview: function (id, data) { return post('/plans/' + encodeURIComponent(id) + '/preview', data || {}); },
+      approve: function (id, data) { return post('/plans/' + encodeURIComponent(id) + '/approve', data || {}); },
+      reject: function (id, data) { return post('/plans/' + encodeURIComponent(id) + '/reject', data || {}); },
+      draftSchedule: function (data) { return post('/plans/draft-schedule', data || {}); },
+      draftTasks: function (data) { return post('/plans/draft-tasks', data || {}); },
+      draftCommunication: function (data) { return post('/plans/draft-communication', data || {}); },
+    },
+
+    achievements: {
+      eligibility: function (eventId, params) { return get('/events/' + encodeURIComponent(eventId) + '/certificates/eligibility', params); },
+      issueEligible: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/certificates/issue-eligible', data || {}); },
+      sync: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/achievements/sync', data || {}); },
+      mine: function (params) { return get('/me/achievements', params); },
+      summary: function (params) { return get('/achievements/summary', params); },
+      share: function (id, data) { return patch('/achievements/' + encodeURIComponent(id) + '/share', data || {}); },
+    },
+
+    analytics: {
+      event: function (eventId, params) { return get('/analytics/events/' + encodeURIComponent(eventId), params); },
+      compare: function (params) { return get('/analytics/compare', params); },
+      query: function (data) { return post('/analytics/query', data || {}); },
+      insights: function (data) { return post('/ai/insights', data || {}); },
+    },
+
+    integrations: {
+      webhooks: function (params) { return get('/webhooks', params); },
+      createWebhook: function (data) { return post('/webhooks', data); },
+      removeWebhook: function (id) { return del('/webhooks/' + encodeURIComponent(id)); },
+      testWebhook: function (id, data) { return post('/webhooks/' + encodeURIComponent(id) + '/test', data || {}); },
+      deliveries: function (id, params) { return get('/webhooks/' + encodeURIComponent(id) + '/deliveries', params); },
+      retryDelivery: function (deliveryId, data) { return post('/webhooks/deliveries/' + encodeURIComponent(deliveryId) + '/retry', data || {}); },
+      icsUrl: function (eventId) { return '/api/events/' + encodeURIComponent(eventId) + '/calendar.ics'; },
+      importRegistrations: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/import/registrations', data); },
+      exportUrl: function (eventId, kind, format) { return '/api/events/' + encodeURIComponent(eventId) + '/exports/' + encodeURIComponent(kind) + '?format=' + encodeURIComponent(format || 'csv'); },
+      publicEvents: function (params) { return get('/v1/events', params); },
+      publicEvent: function (id) { return get('/v1/events/' + encodeURIComponent(id)); },
+      publicSchedule: function (id) { return get('/v1/events/' + encodeURIComponent(id) + '/schedule'); },
+      keys: function () { return get('/integrations/keys'); },
+      rotateKeys: function (data) { return patch('/integrations/keys', data || { rotate: true }); },
+    },
+
+    organizations: {
+      list: function (params) { return get('/organizations', params); },
+      create: function (data) { return post('/organizations', data); },
+      get: function (id) { return get('/organizations/' + encodeURIComponent(id)); },
+      update: function (id, data) { return patch('/organizations/' + encodeURIComponent(id), data); },
+      remove: function (id) { return del('/organizations/' + encodeURIComponent(id)); },
+      members: function (orgId, params) { return get('/organizations/' + encodeURIComponent(orgId) + '/members', params); },
+      addMember: function (orgId, data) { return post('/organizations/' + encodeURIComponent(orgId) + '/members', data); },
+      updateMember: function (memberId, data) { return patch('/organizations/members/' + encodeURIComponent(memberId), data); },
+      removeMember: function (memberId) { return del('/organizations/members/' + encodeURIComponent(memberId)); },
+      events: function (orgId, params) { return get('/organizations/' + encodeURIComponent(orgId) + '/events', params); },
+      attachEvent: function (eventId, data) { return post('/events/' + encodeURIComponent(eventId) + '/organization', data || {}); },
+    },
+
+    payments: {
+      config: function () { return get('/payments/config'); },
+      checkout: function (registrationId, data) { return post('/registrations/' + encodeURIComponent(registrationId) + '/checkout', data || {}); },
+      verify: function (data) { return post('/payments/verify', data || {}); },
+      registration: function (registrationId, params) { return get('/registrations/' + encodeURIComponent(registrationId) + '/payment', params); },
+    },
+
+    offline: {
+      syncStatus: function (eventId, params) { return get('/attendance/sync-status', params ? Object.assign({ eventId: eventId }, params) : { eventId: eventId }); },
+      manifest: function (eventId, params) { return get('/attendance/offline-manifest', params ? Object.assign({ eventId: eventId }, params) : { eventId: eventId }); },
+    },
+
+    eventTypeAdmin: {
+      create: function (data) { return post('/event-types', data); },
+      update: function (id, data) { return patch('/event-types/' + encodeURIComponent(id), data); },
+      remove: function (id) { return del('/event-types/' + encodeURIComponent(id)); },
     },
 
     guest: {

@@ -30,10 +30,59 @@ All values are optional; working defaults ship in `config.py`. Override with a
 | `OTP_LENGTH` | `6` | Verification code length. |
 | `OTP_EXP_MINUTES` | `15` | Code validity window. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | unset | Real email delivery. When unset, mail is stored in-app instead. |
-| `DEMO_USER_EMAIL` | `admin@waymark.dev` | User used when a request has no token (frontend demo browsing). |
+| `DEMO_USER_EMAIL` | `user@baymark.com` | User used when a request has no token (frontend demo browsing). Never an admin. |
+| `WM_DEMO_AUTH` | `1` | When `1`, an unauthenticated request resolves to `DEMO_USER_EMAIL`. Set `0` to require a real JWT (the test suite runs with `0`, so anonymous calls are genuine 401s). |
+| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `local` / empty | AI co-pilot. `local` is a deterministic offline generator (no key, no network). Remote providers are used only when a key is supplied. Plans are always proposals requiring human approval. |
+| `PAYMENT_PROVIDER` / `PAYMENT_MODE` / `PAYMENT_SECRET` | empty / `test` / dev secret | Empty provider disables payments (checkout returns 409, no Payment row). `sandbox` enables the HMAC-SHA256 signature-verified sandbox flow. Card data is never accepted or stored. |
 | `FRONTEND_DIR` | `../frontend` | Static file root. |
 
-## Database behaviour
+## Migrations
+
+`backend/migrations/` holds ordered, **non-destructive** schema steps recorded in
+`wm_schema_migrations`. On boot the order is: `db.create_all()` → `run_migrations()`
+→ `seed_all()` → `ensure_accounts()` → `ensure_event_types()`. `add_column` /
+`add_index` are dialect-neutral and guarded, so re-running is safe. Inspect with
+`migration_status()`.
+
+## Tests
+
+```powershell
+cd backend
+python -m pytest tests -q      # in-repo suite (SQLite temp DB, WM_DEMO_AUTH=0)
+python -m compileall -q .
+```
+
+## Event engine & operating platform (this build)
+
+Beyond the original auth/event/registration core, the API now covers:
+
+- `event-types` — configurable type engine (workflow, fields, participation,
+  evaluation, certificate rules). Admin CRUD + validation; seeded system types.
+- `scheduling` — sessions, venues, resources, bookings, persisted schedule
+  **conflict detection** (room/speaker/volunteer/resource overlap, capacity,
+  availability, missing resource, impossible deadline) with stable fingerprints,
+  auto-resolution and computed suggestions.
+- `operations` — live ops metrics, incidents (legal status transitions),
+  schedule-change propagation, notification jobs.
+- `tasks` — task board, dependencies (cycle-checked), volunteer recommendations
+  (skills/availability/hour-caps) and hour logging.
+- `finance` — budget categories/lines/summary/scenarios and sponsors with
+  deliverables + sponsor report. All money is integer **minor units** + ISO
+  currency (`utils/money.py`).
+- `plans` — AI co-pilot: brief → validated plan draft → `preview` → human
+  `approve` creates the event/sessions/tasks/budget (idempotent). AI never
+  publishes anything by itself.
+- `achievements` — certificate eligibility, bulk issue, achievement sync/share.
+- `analytics` — per-event metrics, A/B comparison, natural-language query,
+  AI insights.
+- `integrations` — webhooks (+ deliveries/retry/test, HMAC signatures),
+  calendar `.ics`, CSV/XLSX registration import (validate→commit), exports,
+  and a public read-only API (`X-WayMark-Key`).
+- `organizations` — orgs, members/roles/permissions, org-scoped events.
+- `payments` — checkout + server-side signature verification (idempotent).
+- `offline` — offline check-in sync, status and a limited PII-free manifest.
+
+## API map (all under `/api`)
 
 - Supabase is the primary database. Tables are created automatically; if the
   `wm_users` table is empty, the full demo dataset is seeded (8 users, 8 events,
@@ -95,6 +144,18 @@ Guest links (no login): jury tokens `demo-jury`, `jury-design-9f2a`,
 - `messages`: in-app outbox, event send to audiences, resend
 - `admin`: jobs (retry), ai-logs, users, events, mail, settings
 - `ai`: draft-event, draft-message, summarise-feedback, ask (deterministic local)
+- `plans` / `ai`: `/ai/status`, `/plans/generate|preview|approve|reject`,
+  draft-schedule / draft-tasks / draft-communication, `/ai/insights`
+- `scheduling`: sessions, venues, resources, schedule, `schedule/validate`,
+  conflicts, bookings
+- `operations`: `/events/<id>/operations`, incidents, `sessions/<id>/changes`
+- `tasks`: tasks CRUD, assign, dependencies, volunteer recommendations + hours
+- `finance`: budget categories/lines/summary/scenarios, sponsors, sponsor-report
+- `event-types` (config CRUD), `achievements`, `analytics`, `organizations`
+- `integrations`: webhooks (+ deliveries/retry), `calendar.ics`, `import/registrations`,
+  `exports/<kind>`, `v1/*` public API, `integrations/keys`
+- `payments`: config, checkout, verify, provider webhook
+- `attendance` (offline): `sync`, `sync-status`, `offline-manifest`
 - `guest`: jury **and** volunteer guest-link activation (scoped tokens)
 
 Errors are always `{ "message": "..." }` with a matching HTTP status; frontend
