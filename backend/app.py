@@ -43,7 +43,28 @@ def resolve_database_uri(cfg):
         raise
 
 
+# Modules that are developed independently of the core. They are loaded
+# defensively so a module still being built never prevents the rest of WayMark
+# from starting; app.extensions['wm_missing_blueprints'] reports anything absent.
+OPTIONAL_BLUEPRINTS = (
+    ('scheduling', 'scheduling_bp'),
+    ('event_types', 'event_types_bp'),
+    ('operations', 'operations_bp'),
+    ('tasks', 'tasks_bp'),
+    ('finance', 'finance_bp'),
+    ('plans', 'plans_bp'),
+    ('achievements', 'achievements_bp'),
+    ('analytics', 'analytics_bp'),
+    ('integrations', 'integrations_bp'),
+    ('organizations', 'organizations_bp'),
+    ('payments', 'payments_bp'),
+    ('offline', 'offline_bp'),
+)
+
+
 def register_blueprints(app):
+    import importlib
+
     from blueprints.auth import auth_bp
     from blueprints.meta import meta_bp
     from blueprints.users import users_bp
@@ -74,6 +95,18 @@ def register_blueprints(app):
                admin_bp, messages_bp, ai_bp, guest_bp, hosting_bp, volunteers_bp):
         app.register_blueprint(bp, url_prefix='/api')
 
+    missing = []
+    for module_name, attribute in OPTIONAL_BLUEPRINTS:
+        try:
+            module = importlib.import_module('blueprints.' + module_name)
+            app.register_blueprint(getattr(module, attribute), url_prefix='/api')
+        except Exception as exc:  # module may still be under construction
+            missing.append(module_name + ': ' + str(exc)[:120])
+    app.extensions['wm_missing_blueprints'] = missing
+    if missing:
+        print('!! optional blueprints unavailable: ' + ', '.join(
+            item.split(':')[0] for item in missing))
+
 
 def create_app():
     cfg = Config
@@ -96,6 +129,13 @@ def create_app():
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SQLALCHEMY_ENGINE_OPTIONS=engine_options,
         DEMO_USER_EMAIL=cfg.DEMO_USER_EMAIL,
+        DEMO_AUTH=cfg.DEMO_AUTH,
+        AI_PROVIDER=cfg.AI_PROVIDER,
+        AI_API_KEY=cfg.AI_API_KEY,
+        AI_MODEL=cfg.AI_MODEL,
+        PAYMENT_PROVIDER=cfg.PAYMENT_PROVIDER,
+        PAYMENT_MODE=cfg.PAYMENT_MODE,
+        PAYMENT_SECRET=cfg.PAYMENT_SECRET,
         OTP_LENGTH=cfg.OTP_LENGTH,
         OTP_EXP_MINUTES=cfg.OTP_EXP_MINUTES,
         SMTP_HOST=cfg.SMTP_HOST,
@@ -137,10 +177,18 @@ def create_app():
         return error
 
     with app.app_context():
-        from seed import seed_all, ensure_accounts
+        from seed import seed_all, ensure_accounts, ensure_event_types
         db.create_all()
+        try:
+            from migrations import run_migrations
+            applied = run_migrations()
+            app.extensions['wm_migrations'] = applied
+        except Exception as exc:  # never block boot on a migration bookkeeping failure
+            app.extensions['wm_migrations'] = ['error: ' + str(exc)[:200]]
+            print('!! migration run failed: ' + str(exc)[:280])
         seeded = seed_all()
         ensure_accounts()
+        ensure_event_types()
         app.extensions['wm_seeded'] = seeded
 
     return app

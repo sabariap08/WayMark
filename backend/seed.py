@@ -47,6 +47,261 @@ def ensure_accounts():
     return changed
 
 
+# --------------------------------------------------------------------------- #
+# Data-driven event type defaults                                              #
+# --------------------------------------------------------------------------- #
+# `config` is the whole behaviour contract for an event type: what the form
+# asks, whether people register individually or in teams, whether sessions /
+# evaluation / certificates are required, which resources must be booked, the
+# workflow steps and sensible default budget categories. Admins can edit any of
+# it without a code change (PATCH /api/event-types/<id>).
+
+DEFAULT_EVENT_TYPE_CONFIGS = {
+    'Hackathon': {
+        'participation': 'team',
+        'teamSizeMin': 1, 'teamSizeMax': 5,
+        'fields': [
+            {'key': 'tracks', 'label': 'Project tracks', 'type': 'tags',
+             'options': ['AI/ML', 'Web', 'IoT', 'Blockchain', 'Open innovation'], 'required': False},
+            {'key': 'submissionDeadline', 'label': 'Submission deadline', 'type': 'datetime', 'required': True},
+            {'key': 'mentors', 'label': 'Mentors required', 'type': 'boolean', 'required': False},
+        ],
+        'registrationQuestions': [
+            {'key': 'github', 'label': 'GitHub or portfolio link', 'type': 'url', 'required': False},
+            {'key': 'experience', 'label': 'Team experience level', 'type': 'select',
+             'options': ['First hackathon', '1-2 events', 'Regular competitors'], 'required': True},
+        ],
+        'sessionsRequired': True,
+        'sessionTypes': ['Registration', 'Keynote', 'Hackathon', 'Mentoring', 'Judging', 'Awards'],
+        'evaluation': {'enabled': True, 'type': 'jury', 'rounds': ['preliminary', 'final'],
+                       'criteria': ['Innovation', 'Technical execution', 'Impact', 'Presentation']},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance', 'submission']},
+        'approval': 'admin',
+        'requiredResources': ['Audio system', 'Projector'],
+        'workflow': [
+            {'key': 'description', 'label': 'Event brief'},
+            {'key': 'schedule', 'label': 'Build schedule & tracks'},
+            {'key': 'registration', 'label': 'Team registration questions'},
+            {'key': 'resources', 'label': 'Venue, power & kit'},
+            {'key': 'judging', 'label': 'Jury and rubric'},
+            {'key': 'publish', 'label': 'Publish'},
+        ],
+        'defaultBudgetCategories': ['Venue & power', 'Prizes', 'Food & beverages', 'Kit & swag', 'Marketing'],
+        'tracks': ['AI/ML', 'Web', 'IoT', 'Blockchain', 'Open innovation'],
+    },
+    'Academic conference': {
+        'participation': 'individual',
+        'fields': [
+            {'key': 'callForPapers', 'label': 'Call for papers closes', 'type': 'date', 'required': True},
+            {'key': 'reviewModel', 'label': 'Review model', 'type': 'select',
+             'options': ['Single blind', 'Double blind', 'Open review'], 'required': True},
+            {'key': 'presentation', 'label': 'Presentation format', 'type': 'select',
+             'options': ['Oral', 'Poster', 'Both'], 'required': False},
+        ],
+        'registrationQuestions': [
+            {'key': 'affiliation', 'label': 'Institution / affiliation', 'type': 'text', 'required': True},
+            {'key': 'designation', 'label': 'Designation', 'type': 'text', 'required': False},
+        ],
+        'submissions': {'enabled': True, 'kind': 'paper', 'deadlineField': 'callForPapers',
+                        'requiresReview': True, 'decisions': ['Accepted', 'Minor revision', 'Rejected']},
+        'sessionsRequired': True,
+        'sessionTypes': ['Keynote', 'Talk', 'Paper presentation', 'Panel', 'Networking'],
+        'evaluation': {'enabled': True, 'type': 'reviewer', 'rounds': ['review', 'camera ready'],
+                       'criteria': ['Relevance', 'Methodology', 'Novelty', 'Clarity']},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance', 'presentation']},
+        'approval': 'admin',
+        'requiredResources': ['Audio system', 'Projector'],
+        'workflow': [
+            {'key': 'description', 'label': 'Conference scope'},
+            {'key': 'call', 'label': 'Call for papers'},
+            {'key': 'review', 'label': 'Reviewer assignment'},
+            {'key': 'schedule', 'label': 'Programme'},
+            {'key': 'publish', 'label': 'Publish'},
+        ],
+        'defaultBudgetCategories': ['Venue', 'Catering', 'Speaker travel', 'Proceedings', 'Publication fees'],
+    },
+    'College symposium': {
+        'participation': 'team',
+        'teamSizeMin': 1, 'teamSizeMax': 4,
+        'fields': [
+            {'key': 'competitions', 'label': 'Competitions', 'type': 'tags',
+             'options': ['Paper presentation', 'Coding', 'Quiz', 'Debugging', 'Poster'], 'required': False},
+            {'key': 'workshops', 'label': 'Workshops offered', 'type': 'number', 'required': False},
+            {'key': 'multiVenue', 'label': 'Multiple venues', 'type': 'boolean', 'required': False},
+        ],
+        'registrationQuestions': [
+            {'key': 'college', 'label': 'College name', 'type': 'text', 'required': True},
+            {'key': 'year', 'label': 'Year of study', 'type': 'select',
+             'options': ['1st', '2nd', '3rd', '4th', 'PG'], 'required': True},
+            {'key': 'studentId', 'label': 'Student ID', 'type': 'text', 'required': False},
+        ],
+        'sessionsRequired': True,
+        'sessionTypes': ['Registration', 'Keynote', 'Contest', 'Workshop', 'Paper presentation', 'Awards'],
+        'evaluation': {'enabled': True, 'type': 'jury', 'rounds': ['preliminary', 'final'],
+                       'criteria': ['Content', 'Execution', 'Relevance', 'Q&A']},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance']},
+        'approval': 'admin',
+        'requiredResources': ['Audio system'],
+        'workflow': [
+            {'key': 'description', 'label': 'Symposium brief'},
+            {'key': 'competitions', 'label': 'Competitions & workshops'},
+            {'key': 'schedule', 'label': 'Multi-venue schedule'},
+            {'key': 'volunteers', 'label': 'Volunteer assignments'},
+            {'key': 'publish', 'label': 'Publish'},
+        ],
+        'defaultBudgetCategories': ['Venue', 'Prizes', 'Catering', 'Printing & branding', 'Logistics'],
+    },
+    'IT conference': {
+        'participation': 'individual',
+        'fields': [
+            {'key': 'tracks', 'label': 'Tracks', 'type': 'tags',
+             'options': ['Engineering', 'Product', 'Data', 'Security', 'Design'], 'required': False},
+            {'key': 'sponsors', 'label': 'Sponsor packages', 'type': 'number', 'required': False},
+            {'key': 'exhibitors', 'label': 'Exhibitor booths', 'type': 'number', 'required': False},
+        ],
+        'registrationQuestions': [
+            {'key': 'company', 'label': 'Company', 'type': 'text', 'required': False},
+            {'key': 'jobTitle', 'label': 'Job title', 'type': 'text', 'required': False},
+        ],
+        'sessionsRequired': True,
+        'sessionTypes': ['Keynote', 'Talk', 'Workshop', 'Networking', 'Break'],
+        'evaluation': {'enabled': False, 'type': 'none', 'rounds': [], 'criteria': []},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance']},
+        'approval': 'admin',
+        'requiredResources': ['Audio system', 'Projector'],
+        'workflow': [
+            {'key': 'description', 'label': 'Conference brief'},
+            {'key': 'speakers', 'label': 'Speakers & sessions'},
+            {'key': 'sponsors', 'label': 'Sponsors & exhibitors'},
+            {'key': 'schedule', 'label': 'Tracks & schedule'},
+            {'key': 'publish', 'label': 'Publish'},
+        ],
+        'defaultBudgetCategories': ['Venue', 'Speakers', 'Catering', 'Production', 'Sponsorship fulfilment'],
+    },
+    'Corporate event': {
+        'participation': 'individual',
+        'fields': [
+            {'key': 'invitations', 'label': 'Invitation only', 'type': 'boolean', 'required': False},
+            {'key': 'approvalRequired', 'label': 'Registration needs approval', 'type': 'boolean', 'required': False},
+            {'key': 'budgetCode', 'label': 'Internal budget code', 'type': 'text', 'required': False},
+        ],
+        'registrationQuestions': [
+            {'key': 'company', 'label': 'Company', 'type': 'text', 'required': True},
+            {'key': 'dietary', 'label': 'Dietary requirements', 'type': 'text', 'required': False},
+        ],
+        'sessionsRequired': True,
+        'sessionTypes': ['Registration', 'Talk', 'Break', 'Networking'],
+        'evaluation': {'enabled': False, 'type': 'none', 'rounds': [], 'criteria': []},
+        'certificates': {'enabled': False, 'rules': []},
+        'approval': 'admin',
+        'requiredResources': ['Audio system', 'Projector'],
+        'workflow': [
+            {'key': 'description', 'label': 'Event brief'},
+            {'key': 'guests', 'label': 'Guest list & invitations'},
+            {'key': 'schedule', 'label': 'Agenda'},
+            {'key': 'budget', 'label': 'Budget & sponsors'},
+            {'key': 'publish', 'label': 'Publish'},
+        ],
+        'defaultBudgetCategories': ['Venue', 'Catering', 'Production', 'Travel', 'Contingency'],
+    },
+    'Workshop': {
+        'participation': 'individual',
+        'fields': [{'key': 'level', 'label': 'Skill level', 'type': 'select',
+                    'options': ['Beginner', 'Intermediate', 'Advanced'], 'required': True}],
+        'registrationQuestions': [{'key': 'prerequisites', 'label': 'Prerequisites met?', 'type': 'boolean',
+                                   'required': False}],
+        'sessionsRequired': True,
+        'sessionTypes': ['Registration', 'Workshop', 'Break'],
+        'evaluation': {'enabled': False, 'type': 'none', 'rounds': [], 'criteria': []},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance']},
+        'approval': 'admin',
+        'requiredResources': ['Projector'],
+        'workflow': [{'key': 'description', 'label': 'Workshop brief'},
+                     {'key': 'schedule', 'label': 'Agenda'},
+                     {'key': 'publish', 'label': 'Publish'}],
+        'defaultBudgetCategories': ['Venue', 'Trainer', 'Materials', 'Catering'],
+    },
+    'Competition': {
+        'participation': 'team',
+        'teamSizeMin': 1, 'teamSizeMax': 3,
+        'fields': [{'key': 'rounds', 'label': 'Number of rounds', 'type': 'number', 'required': True}],
+        'registrationQuestions': [],
+        'sessionsRequired': True,
+        'sessionTypes': ['Registration', 'Contest', 'Judging', 'Awards'],
+        'evaluation': {'enabled': True, 'type': 'jury', 'rounds': ['round 1', 'final'],
+                       'criteria': ['Accuracy', 'Speed', 'Presentation']},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance', 'result_rank']},
+        'approval': 'admin',
+        'requiredResources': [],
+        'workflow': [{'key': 'description', 'label': 'Rules & rounds'},
+                     {'key': 'judging', 'label': 'Jury and rubric'},
+                     {'key': 'publish', 'label': 'Publish'}],
+        'defaultBudgetCategories': ['Prizes', 'Venue', 'Catering', 'Logistics'],
+    },
+    'Conference': {
+        'participation': 'individual',
+        'sessionsRequired': True,
+        'sessionTypes': ['Keynote', 'Talk', 'Panel', 'Networking'],
+        'evaluation': {'enabled': False, 'type': 'none', 'rounds': [], 'criteria': []},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance']},
+        'approval': 'admin',
+        'requiredResources': ['Audio system'],
+        'workflow': [{'key': 'description', 'label': 'Event brief'},
+                     {'key': 'schedule', 'label': 'Programme'},
+                     {'key': 'publish', 'label': 'Publish'}],
+        'defaultBudgetCategories': ['Venue', 'Speakers', 'Catering', 'Production'],
+        'fields': [], 'registrationQuestions': [],
+    },
+    'Community': {
+        'participation': 'individual',
+        'sessionsRequired': False,
+        'sessionTypes': ['Registration', 'Talk', 'Networking'],
+        'evaluation': {'enabled': False, 'type': 'none', 'rounds': [], 'criteria': []},
+        'certificates': {'enabled': True, 'rules': ['verified_attendance']},
+        'approval': 'admin',
+        'requiredResources': [],
+        'workflow': [{'key': 'description', 'label': 'Event brief'},
+                     {'key': 'publish', 'label': 'Publish'}],
+        'defaultBudgetCategories': ['Venue', 'Catering', 'Miscellaneous'],
+        'fields': [], 'registrationQuestions': [],
+    },
+}
+
+SYSTEM_EVENT_TYPES = [
+    ('Hackathon', 'Multi-day building sprints judged on demo', 'hackathon'),
+    ('Workshop', 'Hands-on learning with mentors', 'workshop'),
+    ('Conference', 'Talks, panels and networking', 'conference'),
+    ('Competition', 'Judged contests with rounds and prizes', 'competition'),
+    ('Community', 'Meetups and open gatherings', 'community'),
+    ('Academic conference', 'Papers, reviews and presentations', 'conference'),
+    ('College symposium', 'Multi-competition campus festival', 'community'),
+    ('IT conference', 'Speakers, tracks, sponsors and exhibits', 'conference'),
+    ('Corporate event', 'Invited audiences and internal agendas', 'community'),
+]
+
+
+def ensure_event_types():
+    """Idempotently create system event types and back-fill missing configs.
+    Existing admin customisations are never overwritten."""
+    changed = False
+    for order, (name, tagline, css) in enumerate(SYSTEM_EVENT_TYPES):
+        row = EventType.query.filter_by(name=name).first()
+        if not row:
+            row = EventType(name=name, tagline=tagline, css_class=css,
+                            sort_order=order, is_system=True, config={})
+            db.session.add(row)
+            changed = True
+        if not getattr(row, 'config', None):
+            row.config = dict(DEFAULT_EVENT_TYPE_CONFIGS.get(name) or
+                              DEFAULT_EVENT_TYPE_CONFIGS['Community'])
+            changed = True
+        if getattr(row, 'is_system', None) is None:
+            row.is_system = True
+            changed = True
+    db.session.commit()
+    return changed
+
+
 def seed_all():
     if User.query.count() > 0:
         return False

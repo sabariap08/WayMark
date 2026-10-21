@@ -50,5 +50,20 @@ class Config:
     SMTP_FROM = _env('SMTP_FROM', 'WayMark <no-reply@baymark.com>')
 
     DEMO_USER_EMAIL = _env('DEMO_USER_EMAIL', 'user@baymark.com')
+    # When 1 (default) a request with NO token at all is served as the demo user
+    # so the static frontend can be browsed without logging in. Tests set this
+    # to 0 so anonymous requests are genuinely 401.
+    DEMO_AUTH = _env('WM_DEMO_AUTH', '1') == '1'
+
+    # Optional AI provider. 'local' (default) uses the deterministic offline
+    # generator, so WayMark never depends on a paid service.
+    AI_PROVIDER = _env('AI_PROVIDER', 'local')
+    AI_API_KEY = _env('AI_API_KEY', '')
+    AI_MODEL = _env('AI_MODEL', '')
+
+    # Optional payment provider. Empty = payments disabled, free events unaffected.
+    PAYMENT_PROVIDER = _env('PAYMENT_PROVIDER', '')
+    PAYMENT_MODE = _env('PAYMENT_MODE', 'sandbox')
+    PAYMENT_SECRET = _env('PAYMENT_SECRET', '')
 
     FRONTEND_DIR = os.path.abspath(os.path.join(BACKEND_DIR, '..', 'frontend'))

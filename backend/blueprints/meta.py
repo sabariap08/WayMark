@@ -1,8 +1,8 @@
-"""Public meta: event types, categories, statuses."""
+"""Public meta: event types (with their behaviour config), categories, statuses."""
 from flask import Blueprint, jsonify
 
 from models import EventType
-from utils.serializers import iso  # noqa: F401  (kept for consistency)
+from utils.serializers import event_type_json
 
 meta_bp = Blueprint('meta', __name__)
 
@@ -19,28 +19,36 @@ STATUSES = ['Draft', 'Pending', 'Changes requested', 'Published', 'Registration 
             'Registration closed', 'Ongoing', 'Completed', 'Cancelled', 'Rejected']
 
 
+def _rows():
+    return EventType.query.order_by(EventType.sort_order.asc()).all()
+
+
 @meta_bp.route('/meta', methods=['GET'])
 def meta():
-    rows = EventType.query.order_by(EventType.sort_order.asc()).all()
+    rows = _rows()
     if not rows:
         types = [[name, tagline, css] for name, tagline, css in DEFAULT_TYPES]
+        categories = list(CATEGORIES)
     else:
         types = [[t.name, t.tagline, t.css_class] for t in rows]
+        # Categories follow the configured event types so a new type shows up in
+        # filters without a code change.
+        categories = list(dict.fromkeys([t.name for t in rows] + CATEGORIES))
     return jsonify({
         'eventTypes': types,
-        'eventCategories': CATEGORIES,
+        'eventCategories': categories,
         'eventStatuses': STATUSES,
     })
 
 
 @meta_bp.route('/event-types', methods=['GET'])
 def event_types():
-    rows = EventType.query.order_by(EventType.sort_order.asc()).all()
+    rows = _rows()
     if not rows:
-        return jsonify([{'id': css, 'name': name, 'tagline': tagline, 'cssClass': css}
+        return jsonify([{'id': css, 'name': name, 'tagline': tagline, 'cssClass': css,
+                         'config': {}}
                         for name, tagline, css in DEFAULT_TYPES])
-    return jsonify([{'id': t.id, 'name': t.name, 'tagline': t.tagline, 'cssClass': t.css_class}
-                    for t in rows])
+    return jsonify([event_type_json(t) for t in rows])
 
 
 @meta_bp.route('/event-types/<event_type_id>', methods=['GET'])
@@ -48,4 +56,4 @@ def event_type(event_type_id):
     row = EventType.query.get(event_type_id) or EventType.query.filter_by(name=event_type_id).first()
     if not row:
         return jsonify({'message': 'Event type not found.'}), 404
-    return jsonify({'id': row.id, 'name': row.name, 'tagline': row.tagline, 'cssClass': row.css_class})
+    return jsonify(event_type_json(row))

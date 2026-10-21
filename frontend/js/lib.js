@@ -500,10 +500,25 @@
     {
       label: 'Hosting operations', items: [
         { label: 'Volunteer management', icon: 'users', path: '/volunteers', href: 'volunteers.html', roles: ['user', 'admin'] },
+        { label: 'Schedule & conflicts', icon: 'calendar-clock', path: '/schedule', href: 'schedule.html', roles: ['user', 'admin'] },
+        { label: 'Tasks board', icon: 'list-todo', path: '/tasks', href: 'tasks.html', roles: ['user', 'admin'] },
+        { label: 'Live operations', icon: 'radio', path: '/operations-center', href: 'operations.html', roles: ['user', 'admin'] },
+        { label: 'Budget & sponsors', icon: 'wallet', path: '/budget', href: 'budget.html', roles: ['user', 'admin'] },
         { label: 'Results & release', icon: 'trophy', path: '/results', href: 'results.html', roles: ['user', 'admin'] },
         { label: 'Reports & exports', icon: 'file-bar-chart', path: '/reports', href: 'reports.html', roles: ['user', 'admin'] },
         { label: 'Messages & jobs', icon: 'send', path: '/messages', href: 'messages.html', roles: ['user', 'admin'] },
         { label: 'Exceptions', icon: 'shield-alert', path: '/exceptions', href: 'exceptions.html', roles: ['user', 'admin'] },
+      ],
+    },
+    {
+      label: 'Platform tools', items: [
+        { label: 'AI event planner', icon: 'sparkles', path: '/ai-planner', href: 'ai-planner.html', roles: ['user', 'admin'] },
+        { label: 'Analytics', icon: 'line-chart', path: '/analytics', href: 'analytics.html', roles: ['user', 'admin'] },
+        { label: 'Achievements', icon: 'medal', path: '/achievements', href: 'achievements.html', roles: ['user', 'admin'] },
+        { label: 'Integrations', icon: 'plug', path: '/integrations', href: 'integrations.html', roles: ['user', 'admin'] },
+        { label: 'Organizations', icon: 'building-2', path: '/organizations', href: 'organizations.html', roles: ['user', 'admin'] },
+        { label: 'Payments & offline', icon: 'credit-card', path: '/payments', href: 'payments.html', roles: ['user', 'admin'] },
+        { label: 'Event types', icon: 'shapes', path: '/event-types', href: 'event-types.html', roles: ['admin'] },
       ],
     },
     {

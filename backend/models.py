@@ -36,6 +36,9 @@ class User(db.Model):
     public_profile = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=utcnow)
 
+    # ---- notification consent (added by migration 0001) ----
+    notify_prefs = db.Column(db.JSON, default=dict)  # {schedule, reminders, certificates, ...}
+
 
 class OtpCode(db.Model):
     __tablename__ = 'wm_otp_codes'
@@ -57,6 +60,10 @@ class EventType(db.Model):
     tagline = db.Column(db.String(240), default='')
     css_class = db.Column(db.String(40), default='')
     sort_order = db.Column(db.Integer, default=0)
+    is_system = db.Column(db.Boolean, default=False)
+    config = db.Column(db.JSON, default=dict)   # data-driven behaviour: fields, questions,
+    # participation mode, workflow steps, certificate rules, required resources
+    updated_at = db.Column(db.DateTime, default=utcnow)
 
 
 class Event(db.Model):
@@ -97,6 +104,19 @@ class Event(db.Model):
     created_at = db.Column(db.DateTime, default=utcnow)
     submitted_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime, default=utcnow)
+
+    # ---- universal event engine (added by migration 0002) ----
+    event_type = db.Column(db.String(80), default='')        # Event.name / EventType.name
+    parent_event_id = db.Column(db.String(36), index=True, default='')
+    format = db.Column(db.String(20), default='Offline')     # Online | Offline | Hybrid
+    timezone = db.Column(db.String(60), default='Asia/Kolkata')
+    start_date = db.Column(db.String(20), default='')        # YYYY-MM-DD
+    end_date = db.Column(db.String(20), default='')          # YYYY-MM-DD
+    participation = db.Column(db.String(20), default='individual')  # individual | team
+    currency = db.Column(db.String(3), default='INR')
+    org_id = db.Column(db.String(36), index=True, default='')
+    config = db.Column(db.JSON, default=dict)                # per-event override of event-type config
+    settings = db.Column(db.JSON, default=dict)              # registration questions, workflow state
 
 
 class Registration(db.Model):
@@ -228,9 +248,18 @@ class Volunteer(db.Model):
     shift_date = db.Column(db.String(60), default='')
     shift_time = db.Column(db.String(60), default='')
     status = db.Column(db.String(30), default='Invited')         # Invited | Confirmed | Active | Removed
-    invite_token = db.Column(db.String(60), unique=True, default='')
+    invite_token = db.Column(db.String(60), unique=True,
+                             default=lambda: 'vol_' + uuid.uuid4().hex[:24])
     notes = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=utcnow)
+
+    # ---- coordination profile (added by migration 0003) ----
+    skills = db.Column(db.JSON, default=list)
+    availability = db.Column(db.JSON, default=list)   # [{day, from, to}]
+    venue = db.Column(db.String(200), default='')
+    max_hours = db.Column(db.Integer, default=0)      # 0 = no configured cap
+    assigned_hours = db.Column(db.Float, default=0)
+    completed_tasks = db.Column(db.Integer, default=0)
 
 
 class Rubric(db.Model):
@@ -385,3 +414,373 @@ class AiLog(db.Model):
     tokens = db.Column(db.Integer, default=0)
     status = db.Column(db.String(30), default='Success')
     created_at = db.Column(db.DateTime, default=utcnow)
+
+
+# --------------------------------------------------------------------------- #
+# Universal event engine: configurable types, parent/sub events, structure     #
+# --------------------------------------------------------------------------- #
+
+class Venue(db.Model):
+    """A physical location inside an event. Rooms hang off venues as Resources."""
+    __tablename__ = 'wm_venues'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    name = db.Column(db.String(200), nullable=False)
+    address = db.Column(db.String(300), default='')
+    city = db.Column(db.String(120), default='')
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    map_url = db.Column(db.String(400), default='')
+    directions = db.Column(db.String(400), default='')
+    capacity = db.Column(db.Integer, default=0)
+    accessibility = db.Column(db.Text, default='')     # only meaningful when supplied
+    is_primary = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class Session(db.Model):
+    """A schedulable activity. `day` is YYYY-MM-DD and start/end are 24h HH:MM
+    so the backend can do deterministic overlap maths."""
+    __tablename__ = 'wm_sessions'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    parent_event_id = db.Column(db.String(36), index=True, default='')
+    title = db.Column(db.String(220), nullable=False)
+    description = db.Column(db.Text, default='')
+    session_type = db.Column(db.String(40), default='Talk')  # Talk|Keynote|Workshop|Hackathon|Contest|Break|Registration|Networking|Other
+    day = db.Column(db.String(20), default='')               # YYYY-MM-DD
+    start_time = db.Column(db.String(10), default='')        # HH:MM
+    end_time = db.Column(db.String(10), default='')          # HH:MM
+    venue_id = db.Column(db.String(36), index=True, default='')
+    room_name = db.Column(db.String(200), default='')
+    capacity = db.Column(db.Integer, default=0)
+    speakers = db.Column(db.JSON, default=list)              # [{name, email, resourceId}]
+    track = db.Column(db.String(120), default='')
+    status = db.Column(db.String(30), default='Draft')       # Draft | Published | Completed | Cancelled
+    order_index = db.Column(db.Integer, default=0)
+    setup_minutes = db.Column(db.Integer, default=0)
+    teardown_minutes = db.Column(db.Integer, default=0)
+    required_resource_ids = db.Column(db.JSON, default=list) # dependency tracking
+    resource_deadline = db.Column(db.String(20), default='') # YYYY-MM-DD HH:MM
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+
+
+class Resource(db.Model):
+    """Bookable resource: rooms, kit, and people (staff/speakers/judges/volunteers)."""
+    __tablename__ = 'wm_resources'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    name = db.Column(db.String(200), nullable=False)
+    kind = db.Column(db.String(40), default='Room')  # Room|Auditorium|Laboratory|Equipment|Projector|Audio system|Vehicle|Staff|Speaker|Judge|Volunteer
+    venue_id = db.Column(db.String(36), index=True, default='')
+    capacity = db.Column(db.Integer, default=0)
+    location = db.Column(db.String(200), default='')
+    available_days = db.Column(db.JSON, default=list)   # ['YYYY-MM-DD', ...] empty = all days
+    available_from = db.Column(db.String(10), default='')
+    available_to = db.Column(db.String(10), default='')
+    setup_minutes = db.Column(db.Integer, default=0)
+    teardown_minutes = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(30), default='Active')  # Active | Maintenance | Unavailable
+    notes = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class ResourceBooking(db.Model):
+    __tablename__ = 'wm_resource_bookings'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    session_id = db.Column(db.String(36), index=True, default='')
+    resource_id = db.Column(db.String(36), index=True, default='')
+    day = db.Column(db.String(20), default='')
+    start_time = db.Column(db.String(10), default='')
+    end_time = db.Column(db.String(10), default='')
+    setup_minutes = db.Column(db.Integer, default=0)
+    teardown_minutes = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(30), default='Planned')  # Planned | Confirmed | Released
+    notes = db.Column(db.String(300), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class ScheduleConflict(db.Model):
+    """Persisted, deterministic scheduling problem. Never written by AI."""
+    __tablename__ = 'wm_schedule_conflicts'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    conflict_type = db.Column(db.String(60), default='')
+    # Room overlap | Speaker overlap | Judge overlap | Volunteer conflict |
+    # Resource overlap | Capacity exceeded | Outside availability | Impossible deadline | Missing resource
+    severity = db.Column(db.String(20), default='Warning')   # Critical | Warning
+    resource_id = db.Column(db.String(36), index=True, default='')
+    resource_name = db.Column(db.String(200), default='')
+    session_ids = db.Column(db.JSON, default=list)
+    session_titles = db.Column(db.JSON, default=list)
+    person = db.Column(db.String(200), default='')
+    day = db.Column(db.String(20), default='')
+    start_time = db.Column(db.String(10), default='')
+    end_time = db.Column(db.String(10), default='')
+    message = db.Column(db.Text, default='')
+    detail = db.Column(db.JSON, default=dict)
+    status = db.Column(db.String(20), default='Open')        # Open | Resolved | Dismissed
+    resolution = db.Column(db.Text, default='')
+    detected_at = db.Column(db.DateTime, default=utcnow)
+    resolved_at = db.Column(db.DateTime)
+    resolved_by = db.Column(db.String(160), default='')
+    # A conflict row is re-used across runs when the fingerprint matches.
+    fingerprint = db.Column(db.String(120), index=True, default='')
+
+
+# --------------------------------------------------------------------------- #
+# Operations: tasks, incidents                                                 #
+# --------------------------------------------------------------------------- #
+
+class Task(db.Model):
+    __tablename__ = 'wm_tasks'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    title = db.Column(db.String(220), nullable=False)
+    description = db.Column(db.Text, default='')
+    assignee_id = db.Column(db.String(36), index=True, default='')
+    assignee_name = db.Column(db.String(160), default='')
+    assignee_type = db.Column(db.String(20), default='user')  # user | volunteer | jury | unassigned
+    priority = db.Column(db.String(20), default='Normal')     # Low | Normal | High | Critical
+    due_at = db.Column(db.DateTime)
+    status = db.Column(db.String(20), default='Open')         # Open | In progress | Blocked | Done | Cancelled
+    depends_on = db.Column(db.JSON, default=list)             # [task_id, ...]
+    session_id = db.Column(db.String(36), index=True, default='')
+    resource_id = db.Column(db.String(36), default='')
+    completion_notes = db.Column(db.Text, default='')
+    created_by = db.Column(db.String(160), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+    completed_at = db.Column(db.DateTime)
+
+
+class Incident(db.Model):
+    __tablename__ = 'wm_incidents'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    title = db.Column(db.String(220), nullable=False)
+    description = db.Column(db.Text, default='')
+    severity = db.Column(db.String(20), default='Medium')     # Low | Medium | High | Critical
+    status = db.Column(db.String(20), default='Open')         # Open | Investigating | Resolved | Closed
+    assignee_id = db.Column(db.String(36), default='')
+    assignee_name = db.Column(db.String(160), default='')
+    location = db.Column(db.String(200), default='')
+    resolution = db.Column(db.Text, default='')
+    created_by = db.Column(db.String(160), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+    resolved_at = db.Column(db.DateTime)
+
+
+# --------------------------------------------------------------------------- #
+# Finance: budget + sponsors (money stored as integer minor units)             #
+# --------------------------------------------------------------------------- #
+
+class BudgetCategory(db.Model):
+    __tablename__ = 'wm_budget_categories'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    name = db.Column(db.String(160), nullable=False)
+    planned_minor = db.Column(db.Integer, default=0)
+    currency = db.Column(db.String(3), default='INR')
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class BudgetLine(db.Model):
+    """Actual expense, sponsorship received or other recorded revenue."""
+    __tablename__ = 'wm_budget_lines'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    category_id = db.Column(db.String(36), index=True, default='')
+    description = db.Column(db.String(240), default='')
+    kind = db.Column(db.String(30), default='Expense')        # Expense | Sponsorship | Revenue | Adjustment
+    amount_minor = db.Column(db.Integer, default=0)
+    currency = db.Column(db.String(3), default='INR')
+    date = db.Column(db.String(20), default='')               # YYYY-MM-DD
+    document_ref = db.Column(db.String(400), default='')
+    created_by = db.Column(db.String(160), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class Sponsor(db.Model):
+    __tablename__ = 'wm_sponsors'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    name = db.Column(db.String(200), nullable=False)
+    contact_name = db.Column(db.String(160), default='')
+    contact_email = db.Column(db.String(200), default='')
+    contact_phone = db.Column(db.String(60), default='')
+    package = db.Column(db.String(160), default='')
+    promised_minor = db.Column(db.Integer, default=0)
+    received_minor = db.Column(db.Integer, default=0)
+    currency = db.Column(db.String(3), default='INR')
+    status = db.Column(db.String(30), default='Prospect')     # Prospect | Pledged | Confirmed | Paid | Declined
+    logo_url = db.Column(db.String(400), default='')
+    booth = db.Column(db.String(120), default='')
+    deliverables = db.Column(db.JSON, default=list)           # [{title, due, done}]
+    notes = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+
+
+# --------------------------------------------------------------------------- #
+# Identity: organisations (multi-tenant readiness)                             #
+# --------------------------------------------------------------------------- #
+
+class Organization(db.Model):
+    __tablename__ = 'wm_organizations'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    name = db.Column(db.String(200), nullable=False)
+    slug = db.Column(db.String(120), unique=True, index=True)
+    description = db.Column(db.Text, default='')
+    website = db.Column(db.String(220), default='')
+    contact_email = db.Column(db.String(200), default='')
+    status = db.Column(db.String(20), default='Active')      # Active | Suspended
+    created_by = db.Column(db.String(36), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class OrganizationMember(db.Model):
+    __tablename__ = 'wm_org_members'
+    __table_args__ = (db.UniqueConstraint('org_id', 'user_id', name='uq_org_user'),)
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    org_id = db.Column(db.String(36), index=True, default='')
+    user_id = db.Column(db.String(36), index=True, default='')
+    org_role = db.Column(db.String(20), default='Member')     # Owner | Manager | Member
+    permissions = db.Column(db.JSON, default=list)            # ['events','budget','sponsors','reports']
+    status = db.Column(db.String(20), default='Active')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+# --------------------------------------------------------------------------- #
+# Integrations: webhooks, payments (optional), offline check-in sync           #
+# --------------------------------------------------------------------------- #
+
+class Webhook(db.Model):
+    __tablename__ = 'wm_webhooks'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    url = db.Column(db.String(500), nullable=False)
+    secret = db.Column(db.String(120), default='')
+    events = db.Column(db.JSON, default=list)                # ['event.published', ...]
+    active = db.Column(db.Boolean, default=True)
+    created_by = db.Column(db.String(36), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class WebhookDelivery(db.Model):
+    __tablename__ = 'wm_webhook_deliveries'
+    __table_args__ = (db.UniqueConstraint('webhook_id', 'idempotency_key', name='uq_hook_key'),)
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    webhook_id = db.Column(db.String(36), index=True, default='')
+    event_type = db.Column(db.String(80), default='')
+    payload = db.Column(db.JSON, default=dict)
+    idempotency_key = db.Column(db.String(120), default='')
+    status = db.Column(db.String(20), default='Pending')      # Pending | Delivered | Failed | Skipped
+    attempts = db.Column(db.Integer, default=0)
+    response_code = db.Column(db.Integer)
+    error = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+    delivered_at = db.Column(db.DateTime)
+
+
+class Payment(db.Model):
+    """Optional provider boundary. Amounts are integer minor units; raw card data
+    is never stored. A provider ref must be verified server-side before Paid."""
+    __tablename__ = 'wm_payments'
+    __table_args__ = (db.UniqueConstraint('provider', 'provider_ref', name='uq_provider_ref'),)
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    registration_id = db.Column(db.String(36), index=True, default='')
+    user_id = db.Column(db.String(36), index=True, default='')
+    provider = db.Column(db.String(40), default='sandbox')
+    provider_ref = db.Column(db.String(160), default='')
+    idempotency_key = db.Column(db.String(160), unique=True, default='')
+    amount_minor = db.Column(db.Integer, default=0)
+    currency = db.Column(db.String(3), default='INR')
+    status = db.Column(db.String(20), default='Created')      # Created | Pending | Paid | Failed | Refunded | Cancelled
+    failure_reason = db.Column(db.String(300), default='')
+    meta = db.Column(db.JSON, default=dict)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
+
+
+class OfflineScan(db.Model):
+    """A scan that arrived from a device. `client_scan_id` makes retries and
+    replays idempotent; conflicts are surfaced rather than silently accepted."""
+    __tablename__ = 'wm_offline_scans'
+    __table_args__ = (db.UniqueConstraint('event_id', 'client_scan_id', name='uq_scan_client'),)
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    client_scan_id = db.Column(db.String(80), default='')
+    device_id = db.Column(db.String(80), default='')
+    scanned_at = db.Column(db.String(40), default='')         # device clock, ISO
+    registration_id = db.Column(db.String(36), default='')
+    ticket_code = db.Column(db.String(60), default='')
+    participant_name = db.Column(db.String(160), default='')
+    status = db.Column(db.String(20), default='Accepted')     # Accepted | Duplicate | Rejected | Conflict
+    detail = db.Column(db.Text, default='')
+    online = db.Column(db.Boolean, default=True)
+    received_at = db.Column(db.DateTime, default=utcnow)
+
+
+# --------------------------------------------------------------------------- #
+# Certificates + achievements                                                  #
+# --------------------------------------------------------------------------- #
+
+class Achievement(db.Model):
+    __tablename__ = 'wm_achievements'
+    __table_args__ = (db.UniqueConstraint('user_id', 'dedupe_key', name='uq_user_achievement'),)
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    user_id = db.Column(db.String(36), index=True, default='')
+    event_id = db.Column(db.String(36), index=True, default='')
+    event_title = db.Column(db.String(220), default='')
+    kind = db.Column(db.String(40), default='Participation')  # Participation | Workshop | Presentation | Award | Volunteer service
+    title = db.Column(db.String(220), default='')
+    detail = db.Column(db.Text, default='')
+    source = db.Column(db.String(40), default='')             # attendance | result | volunteer | certificate
+    credential_id = db.Column(db.String(60), default='')
+    shared = db.Column(db.Boolean, default=True)
+    issued_at = db.Column(db.DateTime, default=utcnow)
+    dedupe_key = db.Column(db.String(160), default='')
+
+
+# --------------------------------------------------------------------------- #
+# AI co-pilot: reviewable structured plans (AI never applies them itself)       #
+# --------------------------------------------------------------------------- #
+
+class EventPlan(db.Model):
+    __tablename__ = 'wm_event_plans'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    user_id = db.Column(db.String(36), index=True, default='')
+    title = db.Column(db.String(220), default='')
+    brief = db.Column(db.Text, default='')
+    plan = db.Column(db.JSON, default=dict)                   # structured, schema-validated
+    validation = db.Column(db.JSON, default=dict)             # {valid, errors:[...]}
+    status = db.Column(db.String(20), default='Draft')        # Draft | Approved | Rejected | Applied
+    applied_at = db.Column(db.DateTime)
+    applied_ref = db.Column(db.String(36), default='')        # created event id
+    provider = db.Column(db.String(40), default='local')      # local | openai | anthropic | gemini
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow)
