@@ -4,11 +4,11 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 from extensions import db
-from models import (AiLog, AuditLog, Event, Job, MailMessage, PlatformSetting, User)
+from models import (AiLog, AuditLog, Event, EventApprovalRecord, Job, MailMessage, PlatformSetting, User)
 from utils.helpers import audit, notify
 from utils.mailer import email_configured, send_mail, smtp_from
 from utils.security import current_user, require_admin
-from utils.serializers import (ai_log_json, audit_json, event_json, job_json, user_json)
+from utils.serializers import (ai_log_json, approval_record_json, audit_json, event_json, job_json, user_json)
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -73,7 +73,7 @@ def review_queue():
     return jsonify([event_json(e) for e in rows])
 
 
-def _moderate(event_id, status, approval_status, notify_title, reason='', mail_subject=''):
+def _moderate(event_id, status, approval_status, notify_title, reason='', mail_subject='', action=''):
     event = Event.query.get(event_id)
     if not event:
         return None
@@ -81,6 +81,11 @@ def _moderate(event_id, status, approval_status, notify_title, reason='', mail_s
     event.approval_status = approval_status
     event.rejection_reason = reason or ''
     event.updated_at = datetime.utcnow()
+    if action:
+        db.session.add(EventApprovalRecord(
+            event_id=event.id, action=action, reason=reason or '',
+            actor_id=(current_user().id if current_user() else ''),
+            actor_name=(current_user().name if current_user() else 'system')))
     db.session.commit()
     if event.host_id:
         message = notify_title + ': ' + (event.title or 'your event') + ((' — ' + reason) if reason else '')
@@ -97,7 +102,7 @@ def _moderate(event_id, status, approval_status, notify_title, reason='', mail_s
 def approve(event_id):
     payload = request.get_json(silent=True) or {}
     event = _moderate(event_id, str(payload.get('status') or 'Registration open'), 'Approved',
-                      'Approved', mail_subject='Your event was approved: ')
+                      'Approved', mail_subject='Your event was approved: ', action='approved')
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
     audit('Event approved', current_user(), target=event.title)
@@ -110,7 +115,8 @@ def request_changes(event_id):
     payload = request.get_json(silent=True) or {}
     reason = str(payload.get('message') or payload.get('reason') or '')
     event = _moderate(event_id, 'Changes requested', 'Changes requested',
-                      'Changes requested', reason=reason, mail_subject='Changes requested: ')
+                      'Changes requested', reason=reason, mail_subject='Changes requested: ',
+                      action='changes_requested')
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
     audit('Changes requested', current_user(), target=event.title)
@@ -123,7 +129,7 @@ def reject(event_id):
     payload = request.get_json(silent=True) or {}
     reason = str(payload.get('reason') or payload.get('message') or '')
     event = _moderate(event_id, 'Rejected', 'Rejected', 'Rejected', reason=reason,
-                      mail_subject='Event not approved: ')
+                      mail_subject='Event not approved: ', action='rejected')
     if not event:
         return jsonify({'message': 'Event not found.'}), 404
     audit('Event rejected', current_user(), target=event.title)
@@ -141,9 +147,23 @@ def admin_users():
     return jsonify([user_json(u) for u in rows])
 
 
-@admin_bp.route('/admin/users/<user_id>/remove', methods=['POST'])
+@admin_bp.route('/admin/events/<event_id>/approval-history', methods=['GET'])
 @require_admin
-def remove_user(user_id):
+def approval_history(event_id):
+    rows = EventApprovalRecord.query.filter_by(event_id=event_id).order_by(EventApprovalRecord.created_at.asc()).all()
+    return jsonify([approval_record_json(r) for r in rows])
+
+
+@admin_bp.route('/events/<event_id>/approval-history', methods=['GET'])
+def event_approval_history(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    from utils.security import can_manage_event
+    if not can_manage_event(current_user(), event) and not __import__('utils.security', fromlist=['is_admin']).is_admin(current_user()):
+        return jsonify({'message': 'Only the event host or an admin can view approval history.'}), 403
+    rows = EventApprovalRecord.query.filter_by(event_id=event_id).order_by(EventApprovalRecord.created_at.asc()).all()
+    return jsonify([approval_record_json(r) for r in rows])
     user = User.query.get(user_id)
     if not user:
         return jsonify({'message': 'User not found.'}), 404

@@ -4,11 +4,11 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 from extensions import db
-from models import (AttendanceLog, CheckInException, Event, Job, Notification, Registration,
-                    Rubric, Score, Submission, User)
+from models import (AttendanceLog, CheckInException, Event, EventApprovalRecord, Job, Notification,
+                    Registration, Rubric, Score, Submission, User)
 from utils.helpers import (attendance_count, audit, category_meta, initials_of, notify,
                            notify_admins, parse_bool, parse_int, promote_waitlist,
-                           refresh_event_counts)
+                           refresh_event_counts, unique_event_slug)
 from utils.mailer import send_mail
 from utils.security import can_manage_event, current_user, is_admin
 from utils.serializers import (attendance_json, event_json, exception_json, job_json,
@@ -52,6 +52,9 @@ def _apply_event_payload(event, payload, creating=False):
         event.agenda = payload['agenda'][:30]
     if isinstance(payload.get('requirements'), list):
         event.requirements = [str(t)[:200] for t in payload['requirements'][:15]]
+    if payload.get('visibility') is not None:
+        visibility = str(payload.get('visibility') or 'public').strip().lower()
+        event.visibility = visibility if visibility in ('public', 'unlisted') else 'public'
     if creating:
         meta = category_meta(event.category)
         event.tone = meta['tone']
@@ -59,8 +62,30 @@ def _apply_event_payload(event, payload, creating=False):
         event.initials = initials_of(event.title)
         event.status = event.status or 'Draft'
         event.approval_status = event.approval_status or 'Draft'
+    if payload.get('slug') is not None:
+        candidate = str(payload.get('slug') or '').strip().lower()
+        if candidate:
+            clash = Event.query.filter_by(slug=candidate).first()
+            if clash and clash.id != event.id:
+                event._slug_conflict = candidate   # surfaced by the route as 409
+                return event
+            event.slug = candidate
+    if creating and not event.slug:
+        event.slug = unique_event_slug(event.title)
     event.updated_at = datetime.utcnow()
     return event
+
+
+def record_approval(event, action, reason='', actor=None):
+    """Insert-only approval trail entry."""
+    actor = actor if actor is not None else current_user()
+    row = EventApprovalRecord(
+        event_id=event.id, action=action, reason=reason or '',
+        actor_id=(getattr(actor, 'id', '') or ''),
+        actor_name=(getattr(actor, 'name', '') or 'system'),
+    )
+    db.session.add(row)
+    return row
 
 
 @events_bp.route('/events', methods=['GET'])
@@ -70,6 +95,9 @@ def list_events():
     status = request.args.get('status')
     category = request.args.get('category')
     q = (request.args.get('q') or '').strip().lower()
+    slug = (request.args.get('slug') or '').strip().lower()
+    if slug:
+        query = query.filter_by(slug=slug)
     if status:
         query = query.filter_by(status=status)
     if category:
@@ -78,8 +106,20 @@ def list_events():
         query = query.filter(Event.title.ilike('%' + q + '%'))
     if parse_bool(request.args.get('mine')) and user:
         query = query.filter_by(host_id=user.id)
+    elif parse_bool(request.args.get('discover')):
+        # Public discovery: only published/registration-open Public events.
+        query = query.filter(Event.visibility != 'unlisted')
+        query = query.filter(Event.status.in_(['Published', 'Registration open']))
     rows = query.order_by(Event.created_at.desc()).all()
     return jsonify([event_json(e) for e in rows])
+
+
+@events_bp.route('/events/by-slug/<slug>', methods=['GET'])
+def get_event_by_slug(slug):
+    event = Event.query.filter_by(slug=(slug or '').strip().lower()).first()
+    if not event:
+        return jsonify({'message': 'Event not found.'}), 404
+    return jsonify(event_json(event))
 
 
 @events_bp.route('/events', methods=['POST'])
@@ -95,6 +135,8 @@ def create_event():
     event = Event(title=title, host_id=(user.id if user else ''), host_name=(user.name if user else ''),
                   organizer=str(payload.get('organizer') or (user.name if user else '')))
     _apply_event_payload(event, payload, creating=True)
+    if getattr(event, '_slug_conflict', None):
+        return jsonify({'message': 'The slug "' + event._slug_conflict + '" is already used by another event.'}), 409
     db.session.add(event)
     db.session.commit()
     audit('Event created', user, target=event.title)
@@ -121,6 +163,8 @@ def update_event(event_id):
     payload.pop('hostId', None)
     payload.pop('host_id', None)
     _apply_event_payload(event, payload)
+    if getattr(event, '_slug_conflict', None):
+        return jsonify({'message': 'The slug "' + event._slug_conflict + '" is already used by another event.'}), 409
     db.session.commit()
     audit('Event updated', current_user(), target=event.title)
     return jsonify(event_json(event))
@@ -157,6 +201,9 @@ def submit_event(event_id):
     event.approval_status = 'Pending'
     event.submitted_at = datetime.utcnow()
     event.updated_at = datetime.utcnow()
+    action = 'resubmitted' if EventApprovalRecord.query.filter_by(
+        event_id=event.id).filter(EventApprovalRecord.action.in_(['submitted', 'changes_requested', 'rejected'])).count() else 'submitted'
+    record_approval(event, action)
     db.session.commit()
     notify_admins('Event submitted for review', (event.title or 'An event') + ' is awaiting approval.', 'approval')
     audit('Event submitted', current_user(), target=event.title)
@@ -178,6 +225,7 @@ def approve_event(event_id):
     event.approval_status = 'Approved'
     event.rejection_reason = ''
     event.updated_at = datetime.utcnow()
+    record_approval(event, 'approved')
     db.session.commit()
     if event.host_id:
         notify(event.host_id, 'Event approved', (event.title or 'Your event') + ' is now live.', 'approval')
@@ -198,10 +246,13 @@ def request_event_changes(event_id):
         return jsonify({'message': 'Event not found.'}), 404
     payload = request.get_json(silent=True) or {}
     reason = str(payload.get('reason') or '')
+    if not reason:
+        return jsonify({'message': 'A reason is required when requesting changes.'}), 400
     event.status = 'Changes requested'
     event.approval_status = 'Changes requested'
     event.rejection_reason = reason
     event.updated_at = datetime.utcnow()
+    record_approval(event, 'changes_requested', reason=reason)
     db.session.commit()
     if event.host_id:
         notify(event.host_id, 'Changes requested', (event.title or 'Your event') + ' needs changes.'
@@ -272,7 +323,15 @@ def duplicate_event(event_id):
         tone=source.tone, color=source.color, initials=source.initials,
         certificates_enabled=source.certificates_enabled, jury_enabled=source.jury_enabled,
         feedback_enabled=source.feedback_enabled, attendance_required=source.attendance_required,
+        event_type=getattr(source, 'event_type', '') or '', parent_event_id=getattr(source, 'parent_event_id', '') or '',
+        format=getattr(source, 'format', 'Offline') or 'Offline', timezone=getattr(source, 'timezone', 'Asia/Kolkata') or 'Asia/Kolkata',
+        start_date=getattr(source, 'start_date', '') or '', end_date=getattr(source, 'end_date', '') or '',
+        participation=getattr(source, 'participation', 'individual') or 'individual',
+        currency=getattr(source, 'currency', 'INR') or 'INR', org_id=getattr(source, 'org_id', '') or '',
+        config=dict(source.config or {}), settings=dict(source.settings or {}),
+        visibility='unlisted',
     )
+    copy.slug = unique_event_slug(copy.title, exclude_id=copy.id)
     db.session.add(copy)
     db.session.commit()
     audit('Event duplicated', current_user(), target=source.title)

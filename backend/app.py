@@ -59,6 +59,8 @@ OPTIONAL_BLUEPRINTS = (
     ('organizations', 'organizations_bp'),
     ('payments', 'payments_bp'),
     ('offline', 'offline_bp'),
+    ('verification', 'verification_bp'),
+    ('guests', 'guests_bp'),
 )
 
 
@@ -190,6 +192,11 @@ def create_app():
         ensure_accounts()
         ensure_event_types()
         app.extensions['wm_seeded'] = seeded
+        try:
+            from utils.scheduler import start_scheduler
+            start_scheduler(app, interval_seconds=60)
+        except Exception as exc:
+            app.extensions['wm_scheduler'] = 'error: ' + str(exc)[:160]
 
     return app
 
