@@ -7,6 +7,7 @@ from extensions import db
 from models import Certificate, Event, Registration
 from utils.helpers import audit, credential_code, notify
 from utils.mailer import send_mail
+from utils.rate_limit import rate_limit
 from utils.security import can_manage_event, current_user, is_admin
 from utils.serializers import certificate_json
 
@@ -92,7 +93,11 @@ def withdraw_certificate(cert_id):
     return jsonify(certificate_json(cert))
 
 
+from utils.rate_limit import rate_limit
+
+
 @certificates_bp.route('/verify/<credential_id>', methods=['GET'])
+@rate_limit(limit=30, window_seconds=60)
 def verify(credential_id):
     cert = Certificate.query.filter_by(credential_id=credential_id).first()
     if not cert:

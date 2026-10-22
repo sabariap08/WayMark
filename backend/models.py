@@ -118,6 +118,10 @@ class Event(db.Model):
     config = db.Column(db.JSON, default=dict)                # per-event override of event-type config
     settings = db.Column(db.JSON, default=dict)              # registration questions, workflow state
 
+    # ---- discovery identity (added by migration 0005) ----
+    slug = db.Column(db.String(160), unique=True, index=True, default=None)
+    visibility = db.Column(db.String(20), default='public')  # public | unlisted
+
 
 class Registration(db.Model):
     __tablename__ = 'wm_registrations'
@@ -139,6 +143,13 @@ class Registration(db.Model):
     waitlist_position = db.Column(db.Integer)
     offer_expires_at = db.Column(db.DateTime)
     registered_at = db.Column(db.DateTime, default=utcnow)
+
+    # ---- registration integrity (added by migration 0005) ----
+    identity_snapshot = db.Column(db.JSON, default=dict)        # name/email/phone/institution at registration time
+    answers = db.Column(db.JSON, default=dict)                  # this event's question answers
+    verification_state = db.Column(db.String(20), default='pending')  # pending | verified | exception | overridden
+    verification_note = db.Column(db.Text, default='')
+    qr_revoked_at = db.Column(db.DateTime)
 
 
 class AttendanceLog(db.Model):
@@ -184,6 +195,63 @@ class JuryAssignment(db.Model):
     status = db.Column(db.String(30), default='Active')           # Active | Completed | Invited
     guest_token = db.Column(db.String(60), unique=True, default='')
     created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class GuestAccess(db.Model):
+    """A scoped, revocable guest link (judge or scanner) for one event.
+
+    Replaces the ad-hoc jury guest_token/volunteer invite_token pattern with a
+    single table so judge links and door-staff scanner links share one model.
+    Tokens are stored hashed; the raw token is shown once at creation. A guest
+    link never grants an application role and never creates a user account."""
+    __tablename__ = 'wm_guest_access'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    event_title = db.Column(db.String(220), default='')
+    kind = db.Column(db.String(20), default='judge')          # judge | scanner
+    name = db.Column(db.String(160), default='')
+    email = db.Column(db.String(200), default='')
+    mobile = db.Column(db.String(60), default='')
+    affiliation = db.Column(db.String(200), default='')
+    panel_role = db.Column(db.String(80), default='')         # e.g. Head judge
+    section = db.Column(db.String(120), default='')           # judge section/track/team scope
+    access_from = db.Column(db.DateTime)
+    access_to = db.Column(db.DateTime)
+    status = db.Column(db.String(20), default='invited')      # invited | active | locked | revoked
+    token_hash = db.Column(db.String(128), unique=True, index=True, default=None)
+    activated_at = db.Column(db.DateTime)
+    conflict_declared_at = db.Column(db.DateTime)
+    revoked_at = db.Column(db.DateTime)
+    created_by = db.Column(db.String(36), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class EventApprovalRecord(db.Model):
+    """Insert-only approval trail. One row per submitted/approved/changes/
+    rejected/resubmitted action, so the review history can never be rewritten."""
+    __tablename__ = 'wm_event_approval_records'
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    action = db.Column(db.String(40), default='')             # submitted | approved | changes_requested | rejected | resubmitted
+    reason = db.Column(db.Text, default='')
+    actor_id = db.Column(db.String(36), default='')
+    actor_name = db.Column(db.String(160), default='')
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class ResultRelease(db.Model):
+    """One row per (event, round) release. Insert-only; rubric edits stop once
+    a round is released."""
+    __tablename__ = 'wm_result_releases'
+    __table_args__ = (db.UniqueConstraint('event_id', 'round', name='uq_result_release'),)
+
+    id = db.Column(db.String(36), primary_key=True, default=gen_id)
+    event_id = db.Column(db.String(36), index=True, default='')
+    round = db.Column(db.String(60), default='final')
+    released_at = db.Column(db.DateTime, default=utcnow)
+    released_by = db.Column(db.String(160), default='')
 
 
 class HostingRequest(db.Model):

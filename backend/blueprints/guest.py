@@ -7,20 +7,54 @@ and scanner apps understand.
 from flask import Blueprint, jsonify, request
 
 from extensions import db
-from models import JuryAssignment, Volunteer
+from models import GuestAccess, JuryAssignment, Volunteer
 from utils.helpers import audit
+from utils.rate_limit import rate_limit
 from utils.security import issue_token
-from utils.serializers import assignment_json, volunteer_json
+from utils.serializers import assignment_json, guest_access_json, volunteer_json
 
 guest_bp = Blueprint('guest', __name__)
 
 
 @guest_bp.route('/guest/activate', methods=['POST'])
+@rate_limit(limit=15, window_seconds=60)
 def activate():
     payload = request.get_json(silent=True) or {}
     token_value = str(payload.get('token') or '').strip()
     if not token_value:
         return jsonify({'message': 'A guest link token is required.'}), 400
+
+    # New-style scoped guest links (judge or scanner), stored hashed.
+    from blueprints.guests import _hash_token
+    from datetime import datetime
+    guest = GuestAccess.query.filter_by(token_hash=_hash_token(token_value)).first()
+    if guest:
+        if guest.status == 'revoked':
+            return jsonify({'message': 'This guest link has been revoked.'}), 403
+        now = datetime.utcnow()
+        if guest.access_from and now < guest.access_from:
+            return jsonify({'message': 'This guest link is not active yet.'}), 403
+        if guest.access_to and now > guest.access_to:
+            return jsonify({'message': 'This guest link has expired.'}), 403
+        guest.status = 'active'
+        guest.activated_at = now
+        db.session.commit()
+        session_token = issue_token(
+            _pseudo(guest.id, guest.name or 'Guest', guest.email or ''),
+            extra={'scope': 'guest', 'kind': guest.kind or 'judge', 'guestId': guest.id,
+                   'eventId': guest.event_id, 'name': guest.name or '', 'section': guest.section or ''},
+            hours=12,
+        )
+        label = 'Scanner' if (guest.kind or '') == 'scanner' else 'Jury'
+        audit(label + ' guest session activated', guest.name or 'Guest',
+              target=guest.event_title or token_value)
+        return jsonify({
+            'token': session_token,
+            'user': {'id': guest.id, 'name': guest.name or 'Guest', 'email': guest.email or '',
+                     'role': label + ' (guest)', 'roleKey': 'guest'},
+            'guest': guest_access_json(guest),
+            'scope': guest.kind or 'judge',
+        })
 
     assignment = JuryAssignment.query.filter_by(guest_token=token_value).first()
     if assignment:

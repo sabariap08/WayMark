@@ -75,6 +75,15 @@ def create_registration():
         event_id=event.id, event_title=event.title, category=event.category,
         date=event.date, time=event.time, location=event.location,
     )
+    # Identity snapshot + this event's answers, taken at registration time so a
+    # later profile edit never rewrites what the host verified.
+    reg.identity_snapshot = {
+        'name': user.name or '', 'email': user.email or '',
+        'phone': user.phone or '', 'institution': user.org or '',
+        'username': user.username or '', 'capturedAt': datetime.utcnow().isoformat() + 'Z',
+    }
+    answers = payload.get('answers')
+    reg.answers = answers if isinstance(answers, dict) else {}
     if full or wants_waitlist:
         reg.status = 'Waitlisted'
         reg.ticket_code = None
@@ -84,6 +93,8 @@ def create_registration():
         reg.status = 'Confirmed'
         reg.ticket_code = ticket_code()
         message = 'Registration confirmed.'
+    from blueprints.verification import apply_verification
+    apply_verification(reg, event)
     db.session.add(reg)
     db.session.commit()
     refresh_event_counts(event)
@@ -227,6 +238,8 @@ def override_registration(reg_id):
         reg.attendance_status = str(payload['attendanceStatus'])
     elif payload.get('attended'):
         reg.attendance_status = 'Checked in'
+    reg.verification_state = 'overridden'
+    reg.verification_note = reason or 'Host override.'
     db.session.commit()
     for exc in CheckInException.query.filter_by(registration_id=reg.id, status='Open').all():
         exc.status = 'Resolved'

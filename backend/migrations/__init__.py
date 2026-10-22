@@ -56,6 +56,21 @@ MIGRATIONS = [
      lambda c: [add_column(c, 'wm_event_types', 'is_system', "BOOLEAN DEFAULT FALSE"),
                 add_column(c, 'wm_event_types', 'config', "JSON DEFAULT '{}'"),
                 add_column(c, 'wm_event_types', 'updated_at', "TIMESTAMP")]),
+
+    ('0005_registration_integrity',
+     'wm_registrations: identity snapshot, answers, verification state',
+     lambda c: [add_column(c, 'wm_registrations', 'identity_snapshot', "JSON DEFAULT '{}'"),
+                add_column(c, 'wm_registrations', 'answers', "JSON DEFAULT '{}'"),
+                add_column(c, 'wm_registrations', 'verification_state', "VARCHAR(20) DEFAULT 'pending'"),
+                add_column(c, 'wm_registrations', 'verification_note', "TEXT DEFAULT ''"),
+                add_column(c, 'wm_registrations', 'qr_revoked_at', "TIMESTAMP")]),
+
+    ('0006_event_discovery_identity',
+     'wm_events: public slug + visibility (public/unlisted)',
+     lambda c: [add_column(c, 'wm_events', 'slug', "VARCHAR(160) DEFAULT NULL"),
+                add_column(c, 'wm_events', 'visibility', "VARCHAR(20) DEFAULT 'public'"),
+                add_index(c, 'ix_wm_events_visibility', 'wm_events', 'visibility'),
+                add_index(c, 'ix_wm_events_slug', 'wm_events', 'slug', unique=True)]),
 ]
 
 
@@ -68,12 +83,14 @@ def add_column(conn, table, name, ddl):
     conn.execute(text('ALTER TABLE {0} ADD COLUMN {1} {2}'.format(table, name, ddl)))
 
 
-def add_index(conn, name, table, column):
+def add_index(conn, name, table, column, unique=False):
     if table not in _tables(conn):
         return
     if column not in _columns(conn, table):
         return
-    conn.execute(text('CREATE INDEX IF NOT EXISTS {0} ON {1} ({2})'.format(name, table, column)))
+    keyword = 'UNIQUE INDEX' if unique else 'INDEX'
+    conn.execute(text('CREATE {0} IF NOT EXISTS {1} ON {2} ({3})'.format(
+        keyword, name, table, column)))
 
 
 def _tables(conn):

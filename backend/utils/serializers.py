@@ -86,6 +86,8 @@ def event_json(e, extra=None):
         'orgId': getattr(e, 'org_id', '') or '',
         'config': getattr(e, 'config', None) or {},
         'settings': getattr(e, 'settings', None) or {},
+        'slug': getattr(e, 'slug', '') or '',
+        'visibility': getattr(e, 'visibility', 'public') or 'public',
         'createdAt': iso(e.created_at),
         'submittedAt': iso(e.submitted_at),
         'updatedAt': iso(e.updated_at),
@@ -98,7 +100,7 @@ def event_json(e, extra=None):
 def registration_json(r):
     if not r:
         return None
-    return {
+    data = {
         'id': r.id,
         'userId': r.user_id or '',
         'userName': r.user_name or '',
@@ -117,6 +119,12 @@ def registration_json(r):
         'offerExpiresAt': iso(r.offer_expires_at),
         'registeredAt': r.registered_at.strftime('%b %d, %Y') if r.registered_at else '',
     }
+    data['identitySnapshot'] = getattr(r, 'identity_snapshot', None) or {}
+    data['answers'] = getattr(r, 'answers', None) or {}
+    data['verificationState'] = getattr(r, 'verification_state', 'pending') or 'pending'
+    data['verificationNote'] = getattr(r, 'verification_note', '') or ''
+    data['qrRevoked'] = bool(getattr(r, 'qr_revoked_at', None))
+    return data
 
 
 def attendance_json(a):
@@ -169,6 +177,46 @@ def assignment_json(j):
         'status': j.status or 'Active',
         'guestToken': j.guest_token or '',
         'createdAt': iso(j.created_at),
+    }
+
+
+def guest_access_json(g):
+    if not g:
+        return None
+    return {
+        'id': g.id,
+        'eventId': g.event_id or '',
+        'eventTitle': g.event_title or '',
+        'kind': g.kind or 'judge',
+        'name': g.name or '',
+        'email': g.email or '',
+        'mobile': g.mobile or '',
+        'affiliation': g.affiliation or '',
+        'panelRole': g.panel_role or '',
+        'section': g.section or '',
+        'accessFrom': iso(g.access_from),
+        'accessTo': iso(g.access_to),
+        'status': g.status or 'invited',
+        'activatedAt': iso(g.activated_at),
+        'conflictDeclaredAt': iso(g.conflict_declared_at),
+        'revokedAt': iso(g.revoked_at),
+        'createdAt': iso(g.created_at),
+        'time': humanize(g.created_at),
+    }
+
+
+def approval_record_json(a):
+    if not a:
+        return None
+    return {
+        'id': a.id,
+        'eventId': a.event_id or '',
+        'action': a.action or '',
+        'reason': a.reason or '',
+        'actorId': a.actor_id or '',
+        'actorName': a.actor_name or '',
+        'createdAt': iso(a.created_at),
+        'time': humanize(a.created_at),
     }
 
 

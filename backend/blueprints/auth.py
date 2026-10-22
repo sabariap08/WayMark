@@ -13,6 +13,7 @@ from extensions import db
 from models import OtpCode, User
 from utils.helpers import audit
 from utils.mailer import email_configured, fallback_otp, send_mail
+from utils.rate_limit import rate_limit
 from utils.security import current_user, hash_password, issue_token, verify_password
 from utils.serializers import user_json
 
@@ -70,6 +71,7 @@ def signup():
 
 
 @auth_bp.route('/auth/login', methods=['POST'])
+@rate_limit(limit=10, window_seconds=60)
 def login():
     payload = request.get_json(silent=True) or {}
     ident = str(payload.get('email') or payload.get('username') or '').strip().lower()

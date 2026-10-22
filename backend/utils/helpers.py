@@ -56,6 +56,34 @@ def guest_token(prefix='jury'):
     return prefix + '-' + ''.join(random.choice(alphabet) for _ in range(10))
 
 
+def slugify(text):
+    """Lowercase URL slug: keep alphanumerics, collapse everything else to '-'."""
+    out = []
+    prev_dash = False
+    for ch in str(text or '').lower():
+        if ch.isalnum():
+            out.append(ch)
+            prev_dash = False
+        elif not prev_dash:
+            out.append('-')
+            prev_dash = True
+    slug = ''.join(out).strip('-')
+    return slug[:120]
+
+
+def unique_event_slug(title, exclude_id=''):
+    """A slug guaranteed unique across events (appends -2, -3, ... on clash)."""
+    base = slugify(title) or 'event'
+    candidate = base
+    n = 2
+    while True:
+        clash = Event.query.filter_by(slug=candidate).first()
+        if not clash or clash.id == exclude_id:
+            return candidate
+        candidate = base + '-' + str(n)
+        n += 1
+
+
 def parse_int(value, default=0):
     try:
         return int(value)
