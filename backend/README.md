@@ -1,8 +1,10 @@
 # WayMark Backend (Flask + Supabase)
 
 Flask API that powers the WayMark prototype frontend. On startup it connects to
-Supabase Postgres, creates + seeds the demo data when the database is empty, and
-also serves the static frontend from `../frontend`.
+the configured Postgres database (Supabase or self-hosted), creates + seeds the
+demo data when the database is empty, and also serves the static frontend from
+`../frontend`. With no database configured it uses a local SQLite file, so the
+quickstart below works out of the box.
 
 ## Quickstart
 
@@ -17,24 +19,29 @@ on the same origin (`/api/...`).
 
 ## Configuration
 
-All values are optional; working defaults ship in `config.py`. Override with a
-`backend/.env` file (see `.env.example`).
+Copy `.env.example` to `backend/.env` and fill in your own values. No secrets
+are stored in the repository. With no database settings the app uses local
+SQLite; set `DATABASE_URL` or the `DB_*` parts to use Postgres.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SUPABASE_DB_URL` | Supabase direct connection (built in) | Full SQLAlchemy URL. Overrides the `DB_*` parts. |
-| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | Supabase project values | Connection parts (password is URL-encoded automatically). |
-| `SQLITE_FALLBACK` | `1` | If Supabase is unreachable, fall back to `backend/waymark-local.db` so the app still runs. Set `0` to fail hard. |
+| `DATABASE_URL` | empty | Full SQLAlchemy URL. Overrides the `DB_*` parts. |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | empty / `5432` / `postgres` / `postgres` / empty | Connection parts (password is URL-encoded automatically). No `DB_HOST` means local SQLite. |
+| `SQLITE_FALLBACK` | `1` | If the configured Postgres database is unreachable, fall back to `backend/waymark-local.db` so the app still runs. Set `0` to fail hard. |
 | `PORT` | `5000` | HTTP port. |
-| `SECRET_KEY` | dev key | JWT signing key — change for any real deployment. |
+| `SECRET_KEY` | random per process | JWT signing key. Set a stable value for any real deployment; without it a new random key is generated at each start and sessions reset on restart. |
 | `OTP_LENGTH` | `6` | Verification code length. |
 | `OTP_EXP_MINUTES` | `15` | Code validity window. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | unset | Real email delivery. When unset, mail is stored in-app instead. |
 | `DEMO_USER_EMAIL` | `user@baymark.com` | User used when a request has no token (frontend demo browsing). Never an admin. |
 | `WM_DEMO_AUTH` | `1` | When `1`, an unauthenticated request resolves to `DEMO_USER_EMAIL`. Set `0` to require a real JWT (the test suite runs with `0`, so anonymous calls are genuine 401s). |
 | `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `local` / empty | AI co-pilot. `local` is a deterministic offline generator (no key, no network). Remote providers are used only when a key is supplied. Plans are always proposals requiring human approval. |
-| `PAYMENT_PROVIDER` / `PAYMENT_MODE` / `PAYMENT_SECRET` | empty / `test` / dev secret | Empty provider disables payments (checkout returns 409, no Payment row). `sandbox` enables the HMAC-SHA256 signature-verified sandbox flow. Card data is never accepted or stored. |
+| `PAYMENT_PROVIDER` / `PAYMENT_MODE` / `PAYMENT_SECRET` | empty / `test` / empty | Empty provider disables payments (checkout returns 409, no Payment row). `sandbox` enables the HMAC-SHA256 signature-verified sandbox flow. Card data is never accepted or stored. |
 | `FRONTEND_DIR` | `../frontend` | Static file root. |
+
+Never commit `backend/.env`. If a credential was ever committed, rotate it in the
+provider's dashboard immediately and scrub it from git history; deleting it from
+the current file does not invalidate the leaked value.
 
 ## Migrations
 
