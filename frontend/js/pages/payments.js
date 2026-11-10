@@ -33,10 +33,15 @@
       events: [], offlineEventId: '',
       sync: null, syncError: '', syncBusy: false,
       manifest: null, manifestError: '', manifestBusy: false,
+      paypalPromise: null,
     };
 
+    function isPaypal() {
+      return !!(state.config && state.config.paypal);
+    }
+
     function enabled() {
-      return !!(state.config && state.config.provider);
+      return !!(state.config && state.config.enabled);
     }
 
     function regOptions() {
@@ -104,6 +109,39 @@
     }
 
     function checkoutPanel() {
+      return isPaypal() ? paypalCheckoutPanel() : sandboxCheckoutPanel();
+    }
+
+    function paypalCheckoutPanel() {
+      let result = '';
+      if (state.checkoutError) {
+        result = '<div class="form-error">' + esc(state.checkoutError) + '</div>';
+      } else if (state.checkout) {
+        const c = state.checkout;
+        result = '<div class="stat-card"><div class="stat-icon stat-teal">' + ic('receipt', 19, 'stroke-width="2"') + '</div>'
+          + '<div class="stat-copy"><span>' + (c.alreadyPaid || c.status === 'Paid' ? 'Paid' : 'PayPal order') + '</span>'
+          + '<strong>' + esc(money(c.amountMinor, c.currency)) + '</strong>'
+          + '<small>orderId ' + esc(c.orderId || c.providerRef || '—') + ' · status ' + esc(c.status || '—') + '</small></div></div>';
+      }
+
+      return '<section class="panel"><h3 class="section-title">Pay with PayPal</h3>'
+        + '<p class="lede">Choose a registration, then pay with PayPal. The order is created and captured '
+        + '<strong>server-side</strong> with the PayPal Orders API — WayMark never sees or stores card data, '
+        + 'and the browser cannot mark a payment as paid.</p>'
+        + '<div id="paypal-buttons" class="paypal-buttons"></div>'
+        + '<div class="modal-actions" style="margin-top:12px">'
+        + '<button type="button" class="button button-secondary" data-paypal-redirect'
+        + (state.checkoutBusy || !state.regId ? ' disabled' : '') + '>'
+        + (state.checkoutBusy ? '<span class="loading-spinner"></span> Opening…' : 'Pay on PayPal (redirect)') + '</button></div>'
+        + result
+        + '<div class="form-info" style="display:block">' + ic('lock', 14) + ' '
+        + '<strong>Verified server-side.</strong> PayPal returns an order id; WayMark captures it via '
+        + '<code>/api/payments/paypal/capture</code> and also accepts signature-verified webhooks at '
+        + '<code>/api/payments/paypal/webhook</code>.</div>'
+        + '</section>';
+    }
+
+    function sandboxCheckoutPanel() {
       let result = '';
       if (state.checkoutError) {
         result = '<div class="form-error">' + esc(state.checkoutError) + '</div>';
@@ -244,6 +282,83 @@
       });
     }
 
+    function loadPaypalSdk(url) {
+      if (global.paypal && global.paypal.Buttons) return Promise.resolve(global.paypal);
+      if (state.paypalPromise) return state.paypalPromise;
+      state.paypalPromise = new Promise(function (resolve, reject) {
+        const existing = document.querySelector('script[data-paypal-sdk]');
+        if (existing) {
+          existing.addEventListener('load', function () { resolve(global.paypal); });
+          existing.addEventListener('error', function () { reject(new Error('PayPal SDK failed to load')); });
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = url;
+        script.async = true;
+        script.setAttribute('data-paypal-sdk', '1');
+        script.onload = function () { resolve(global.paypal); };
+        script.onerror = function () { reject(new Error('PayPal SDK failed to load')); };
+        document.head.appendChild(script);
+      });
+      return state.paypalPromise;
+    }
+
+    function mountPaypalButtons() {
+      if (!isPaypal()) return;
+      const host = document.getElementById('paypal-buttons');
+      if (!host) return;
+      const c = state.config || {};
+      if (!c.clientId || !c.sdkUrl) {
+        host.innerHTML = '<div class="form-info">PayPal is not configured on this server. '
+          + 'Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET.</div>';
+        return;
+      }
+      loadPaypalSdk(c.sdkUrl).then(function (sdk) {
+        if (!sdk || !sdk.Buttons) throw new Error('PayPal SDK unavailable');
+        host.innerHTML = '';
+        sdk.Buttons({
+          style: { layout: 'vertical', shape: 'rect', label: 'paypal' },
+          createOrder: function () {
+            if (!state.regId) {
+              WM.toast('Choose a registration first.', 'error');
+              return Promise.reject(new Error('no registration selected'));
+            }
+            state.checkoutError = '';
+            return global.WMApi.payments.checkout(state.regId).then(function (data) {
+              state.checkout = (data && typeof data === 'object') ? data : null;
+              if (!data || !data.orderId) throw new Error((data && data.message) || 'No PayPal order returned.');
+              return data.orderId;
+            }, function (err) {
+              state.checkoutError = (err && err.message) || 'Could not create the PayPal order.';
+              WM.toast(state.checkoutError, 'error');
+              throw err;
+            });
+          },
+          onApprove: function (data) {
+            return global.WMApi.payments.capture(data.orderID).then(function (payment) {
+              state.checkout = (payment && typeof payment === 'object') ? payment : null;
+              state.checkoutError = '';
+              WM.toast('Payment captured.', 'success');
+              refresh();
+            }, function (err) {
+              state.checkoutError = (err && err.message) || 'Could not capture the PayPal payment.';
+              WM.toast(state.checkoutError, 'error');
+              refresh();
+            });
+          },
+          onCancel: function () { WM.toast('PayPal checkout cancelled.', 'error'); },
+          onError: function (err) {
+            state.checkoutError = (err && err.message) || 'PayPal checkout failed.';
+            WM.toast(state.checkoutError, 'error');
+            refresh();
+          },
+        }).render(host);
+      }).catch(function () {
+        host.innerHTML = '<div class="form-info">Could not load the PayPal SDK. '
+          + 'Use the redirect fallback below.</div>';
+      });
+    }
+
     function wire() {
       const regSel = document.getElementById('pay-reg');
       if (regSel) regSel.addEventListener('change', function () {
@@ -268,6 +383,28 @@
           refresh();
         });
       });
+
+      const redirectBtn = qs('[data-paypal-redirect]');
+      if (redirectBtn) redirectBtn.addEventListener('click', function () {
+        if (!state.regId) { WM.toast('Choose a registration first.', 'error'); return; }
+        state.checkoutBusy = true; state.checkoutError = ''; refresh();
+        global.WMApi.payments.checkout(state.regId).then(function (data) {
+          state.checkoutBusy = false;
+          state.checkout = (data && typeof data === 'object') ? data : null;
+          if (data && data.approvalUrl) {
+            global.location.href = data.approvalUrl;
+          } else {
+            state.checkoutError = 'PayPal did not return an approval link. Try the PayPal button.';
+            refresh();
+          }
+        }, function (err) {
+          state.checkoutBusy = false;
+          state.checkoutError = (err && err.message) || 'Could not start PayPal checkout.';
+          refresh();
+        });
+      });
+
+      mountPaypalButtons();
 
       const offSel = document.getElementById('off-event');
       if (offSel) offSel.addEventListener('change', function () {
@@ -319,6 +456,25 @@
         state.configLoaded = true;
         state.configError = (err && err.message) || 'Could not load payment configuration.';
       })
+        .then(function () {
+          let orderId = '';
+          try {
+            const params = new URLSearchParams(global.location.search || '');
+            orderId = params.get('token') || '';
+          } catch (e) { orderId = ''; }
+          if (!isPaypal() || !orderId) return null;
+          state.checkoutBusy = true;
+          return global.WMApi.payments.capture(orderId).then(function (payment) {
+            state.checkoutBusy = false;
+            state.checkout = (payment && typeof payment === 'object') ? payment : null;
+            state.checkoutError = '';
+            try { global.history.replaceState({}, '', '/payments'); } catch (e) { /* ignore */ }
+            WM.toast('Payment captured.', 'success');
+          }, function (err) {
+            state.checkoutBusy = false;
+            state.checkoutError = (err && err.message) || 'Could not capture the PayPal payment.';
+          });
+        })
         .then(function () {
           return global.WMApi.registrations.list().then(function (rows) {
             state.regs = Array.isArray(rows) ? rows : [];

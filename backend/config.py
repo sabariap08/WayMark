@@ -29,6 +29,15 @@ class Config:
     SUPABASE_URL = _env('SUPABASE_URL')
     SUPABASE_KEY = _env('SUPABASE_KEY')
 
+    LOCAL_DB_ENABLED = _env('LOCAL_DB_ENABLED', '0') == '1'
+    LOCAL_DB_SERVER = _env('LOCAL_DB_SERVER', 'localhost')
+    LOCAL_DB_NAME = _env('LOCAL_DB_NAME', 'WayMarkLocal')
+    LOCAL_DB_DRIVER = _env('LOCAL_DB_DRIVER', 'ODBC Driver 18 for SQL Server')
+    LOCAL_DB_TRUSTED_CONNECTION = _env('LOCAL_DB_TRUSTED_CONNECTION', 'yes') == 'yes'
+    LOCAL_DB_TRUST_SERVER_CERTIFICATE = _env('LOCAL_DB_TRUST_SERVER_CERTIFICATE', 'yes') == 'yes'
+    LOCAL_DB_USER = _env('LOCAL_DB_USER')
+    LOCAL_DB_PASSWORD = _env('LOCAL_DB_PASSWORD')
+
     DB_HOST = _env('DB_HOST')
     DB_PORT = _env('DB_PORT', '5432')
     DB_NAME = _env('DB_NAME', 'postgres')
@@ -41,6 +50,19 @@ class Config:
     _override_url = _env('DATABASE_URL')
     if _override_url:
         DATABASE_URL = _override_url
+    elif LOCAL_DB_ENABLED:
+        _local_params = ['driver=' + quote_plus(LOCAL_DB_DRIVER)]
+        if LOCAL_DB_TRUSTED_CONNECTION:
+            _local_auth = '@'
+            _local_params.append('Trusted_Connection=yes')
+        else:
+            _local_auth = quote_plus(LOCAL_DB_USER) + ':' + quote_plus(LOCAL_DB_PASSWORD) + '@'
+        if LOCAL_DB_TRUST_SERVER_CERTIFICATE:
+            _local_params.append('TrustServerCertificate=yes')
+        DATABASE_URL = (
+            'mssql+pyodbc://' + _local_auth + LOCAL_DB_SERVER + '/' + LOCAL_DB_NAME
+            + '?' + '&'.join(_local_params)
+        )
     elif DB_HOST:
         DATABASE_URL = (
             'postgresql+psycopg2://' + DB_USER + ':' + quote_plus(DB_PASSWORD)
@@ -72,8 +94,21 @@ class Config:
     AI_MODEL = _env('AI_MODEL', '')
 
     # Optional payment provider. Empty = payments disabled, free events unaffected.
+    # 'paypal' enables the real PayPal Orders v2 integration (see utils/paypal.py);
+    # 'sandbox' enables the HMAC-signed offline sandbox flow used by tests.
     PAYMENT_PROVIDER = _env('PAYMENT_PROVIDER', '')
     PAYMENT_MODE = _env('PAYMENT_MODE', 'sandbox')
     PAYMENT_SECRET = _env('PAYMENT_SECRET', '')
+
+    # PayPal REST app credentials (developer.paypal.com > Apps & Credentials).
+    PAYPAL_CLIENT_ID = _env('PAYPAL_CLIENT_ID', '')
+    PAYPAL_CLIENT_SECRET = _env('PAYPAL_CLIENT_SECRET', '')
+    PAYPAL_MODE = _env('PAYPAL_MODE', 'sandbox')
+    PAYPAL_WEBHOOK_ID = _env('PAYPAL_WEBHOOK_ID', '')
+    PAYPAL_CURRENCY = _env('PAYPAL_CURRENCY', 'USD')
+    # PayPal cannot settle in INR, so INR event fees are converted for checkout.
+    PAYPAL_INR_PER_USD = float(_env('PAYPAL_INR_PER_USD', '83.0'))
+    PAYPAL_RETURN_URL = _env('PAYPAL_RETURN_URL', '')
+    PAYPAL_CANCEL_URL = _env('PAYPAL_CANCEL_URL', '')
 
     FRONTEND_DIR = os.path.abspath(os.path.join(BACKEND_DIR, '..', 'frontend'))

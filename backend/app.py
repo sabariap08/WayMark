@@ -16,6 +16,7 @@ import sys
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from config import Config
 from extensions import db
@@ -26,14 +27,20 @@ def resolve_database_uri(cfg):
     uri = cfg.DATABASE_URL
     if uri.startswith('sqlite'):
         return uri, 'SQLite: ' + uri
+    url = make_url(uri)
+    label = url.drivername + ' @ ' + str(url.host or '') + '/' + str(url.database or '')
+    if uri.startswith('mssql'):
+        connect_args = {'timeout': 10}
+    else:
+        connect_args = {'connect_timeout': 10}
     try:
-        engine = create_engine(uri, connect_args={'connect_timeout': 10})
+        engine = create_engine(uri, connect_args=connect_args)
         with engine.connect() as conn:
             conn.execute(text('SELECT 1'))
         engine.dispose()
-        return uri, 'Supabase Postgres @ ' + cfg.DB_HOST + ':' + cfg.DB_PORT
+        return uri, label
     except Exception as exc:
-        print('!! Could not reach Supabase Postgres: ' + str(exc)[:280])
+        print('!! Could not reach configured database: ' + str(exc)[:280])
         if cfg.SQLITE_FALLBACK:
             fallback = 'sqlite:///' + cfg.SQLITE_PATH
             print('!! Falling back to local SQLite so the app still runs:')
@@ -112,7 +119,12 @@ def register_blueprints(app):
 
 def create_app():
     cfg = Config
-    app = Flask(__name__, static_folder=cfg.FRONTEND_DIR, static_url_path='')
+    frontend_root = os.path.abspath(cfg.FRONTEND_DIR)
+    build_dir = os.path.join(frontend_root, 'dist')
+    spa_root = build_dir if os.path.isfile(os.path.join(build_dir, 'index.html')) else None
+    app = Flask(__name__, static_folder=None)
+    app.extensions['wm_frontend_root'] = spa_root or frontend_root
+    app.extensions['wm_frontend_built'] = bool(spa_root)
     db_uri, db_label = resolve_database_uri(cfg)
     engine_options = {'pool_pre_ping': True, 'pool_recycle': 280}
     if db_uri.startswith('postgresql'):
@@ -124,6 +136,8 @@ def create_app():
             'keepalives_count': 3,
             'options': '-c statement_timeout=20000',
         }
+    elif db_uri.startswith('mssql'):
+        engine_options['connect_args'] = {'timeout': 10}
     app.config.update(
         SECRET_KEY=cfg.SECRET_KEY,
         JWT_EXP_HOURS=cfg.JWT_EXP_HOURS,
@@ -162,9 +176,41 @@ def create_app():
             'otpFallback': '0' * int(app.config['OTP_LENGTH']),
         })
 
-    @app.route('/')
-    def index():
-        return send_from_directory(cfg.FRONTEND_DIR, 'index.html')
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_frontend(path):
+        """Serve the Vite build and fall back to index.html for client routes."""
+        if path == 'api' or path.startswith('api/'):
+            return jsonify({'message': 'Endpoint not found: /' + path}), 404
+
+        if spa_root:
+            safe_path = os.path.normpath(path).replace('\\', '/').lstrip('/')
+            candidate = os.path.abspath(os.path.join(spa_root, safe_path)) if safe_path else spa_root
+            inside_build = os.path.commonpath([spa_root, candidate]) == spa_root
+            if safe_path and inside_build and os.path.isfile(candidate):
+                return send_from_directory(spa_root, safe_path)
+            index_path = os.path.join(spa_root, 'index.html')
+            if os.path.isfile(index_path):
+                return send_from_directory(spa_root, 'index.html')
+
+        instructions = (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            '<title>WayMark frontend not built</title></head>'
+            '<body style="margin:0;display:grid;place-items:center;min-height:100vh;'
+            'background:#f6f7fb;color:#121826;font-family:Segoe UI,sans-serif">'
+            '<main style="max-width:560px;padding:32px;border:1px solid #e3e7ef;'
+            'border-radius:20px;background:#fff;box-shadow:0 14px 38px rgba(17,24,39,.08)">'
+            '<p style="margin:0 0 6px;color:#687086;font-size:12px;letter-spacing:.12em;'
+            'text-transform:uppercase">WayMark frontend</p>'
+            '<h1 style="margin:0;font-size:26px">The Vite build is missing.</h1>'
+            '<p style="margin:10px 0 18px;color:#687086;line-height:1.6">'
+            'Run the frontend build, then reload this page.</p>'
+            '<pre style="margin:0;padding:14px;border-radius:12px;background:#0d1527;'
+            'color:#dbe2f3;font-size:13px;overflow:auto">cd frontend\nnpm install\nnpm run build</pre>'
+            '</main></body></html>'
+        )
+        return instructions, 503, {'Content-Type': 'text/html; charset=utf-8'}
 
     @app.errorhandler(404)
     def not_found(error):

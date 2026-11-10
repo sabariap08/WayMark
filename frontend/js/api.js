@@ -418,6 +418,7 @@
     payments: {
       config: function () { return get('/payments/config'); },
       checkout: function (registrationId, data) { return post('/registrations/' + encodeURIComponent(registrationId) + '/checkout', data || {}); },
+      capture: function (orderId) { return post('/payments/paypal/capture', { orderId: orderId }); },
       verify: function (data) { return post('/payments/verify', data || {}); },
       registration: function (registrationId, params) { return get('/registrations/' + encodeURIComponent(registrationId) + '/payment', params); },
     },

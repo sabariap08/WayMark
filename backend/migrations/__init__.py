@@ -74,13 +74,33 @@ MIGRATIONS = [
 ]
 
 
+def _mssql_ddl(ddl):
+    replacements = (
+        ('JSON', 'NVARCHAR(MAX)'),
+        ('BOOLEAN', 'BIT'),
+        ('TIMESTAMP', 'DATETIME'),
+        ('TEXT', 'NVARCHAR(MAX)'),
+        ('INTEGER', 'INT'),
+        ('DEFAULT FALSE', 'DEFAULT 0'),
+        ('DEFAULT TRUE', 'DEFAULT 1'),
+    )
+    for old, new in replacements:
+        ddl = ddl.replace(old, new)
+    return ddl
+
+
 def add_column(conn, table, name, ddl):
     """ALTER TABLE ... ADD COLUMN, guarded so it is safe on every dialect."""
     if table not in _tables(conn):
         return
     if name in _columns(conn, table):
         return
-    conn.execute(text('ALTER TABLE {0} ADD COLUMN {1} {2}'.format(table, name, ddl)))
+    dialect = conn.dialect.name
+    if dialect == 'mssql':
+        statement = 'ALTER TABLE {0} ADD {1} {2}'.format(table, name, _mssql_ddl(ddl))
+    else:
+        statement = 'ALTER TABLE {0} ADD COLUMN {1} {2}'.format(table, name, ddl)
+    conn.execute(text(statement))
 
 
 def add_index(conn, name, table, column, unique=False):
@@ -88,13 +108,26 @@ def add_index(conn, name, table, column, unique=False):
         return
     if column not in _columns(conn, table):
         return
+    if name in _indexes(conn, table):
+        return
     keyword = 'UNIQUE INDEX' if unique else 'INDEX'
-    conn.execute(text('CREATE {0} IF NOT EXISTS {1} ON {2} ({3})'.format(
-        keyword, name, table, column)))
+    if conn.dialect.name == 'mssql':
+        statement = 'CREATE {0} {1} ON {2} ({3})'.format(keyword, name, table, column)
+    else:
+        statement = 'CREATE {0} IF NOT EXISTS {1} ON {2} ({3})'.format(
+            keyword, name, table, column)
+    conn.execute(text(statement))
 
 
 def _tables(conn):
     return set(inspect(conn).get_table_names())
+
+
+def _indexes(conn, table):
+    try:
+        return {index['name'] for index in inspect(conn).get_indexes(table)}
+    except Exception:
+        return set()
 
 
 def _columns(conn, table):
@@ -115,11 +148,19 @@ def run_migrations(engine=None):
     engine = engine or db.engine
     applied = []
     with engine.begin() as conn:
-        conn.execute(text(
-            'CREATE TABLE IF NOT EXISTS wm_schema_migrations ('
-            ' id VARCHAR(120) PRIMARY KEY,'
-            ' description VARCHAR(255) DEFAULT \'\','
-            ' applied_at TIMESTAMP)'))
+        if 'wm_schema_migrations' not in _tables(conn):
+            if conn.dialect.name == 'mssql':
+                conn.execute(text(
+                    'CREATE TABLE wm_schema_migrations ('
+                    ' id VARCHAR(120) NOT NULL PRIMARY KEY,'
+                    ' description VARCHAR(255) NULL,'
+                    ' applied_at DATETIME NULL)'))
+            else:
+                conn.execute(text(
+                    'CREATE TABLE IF NOT EXISTS wm_schema_migrations ('
+                    ' id VARCHAR(120) PRIMARY KEY,'
+                    ' description VARCHAR(255) DEFAULT \'\','
+                    ' applied_at TIMESTAMP)'))
         done = applied_migrations(conn)
         for mid, description, step in MIGRATIONS:
             if mid in done:
