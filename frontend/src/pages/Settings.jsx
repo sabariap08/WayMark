@@ -170,7 +170,10 @@ export default function Settings() {
       />
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
       )}
@@ -286,8 +289,10 @@ export default function Settings() {
                   value={resetCode}
                   onChange={(event) => setResetCode(event.target.value)}
                   placeholder="6-digit code"
+                  aria-label="Reset code"
                   inputMode="numeric"
                   autoComplete="one-time-code"
+                  required
                 />
                 <button
                   type="button"

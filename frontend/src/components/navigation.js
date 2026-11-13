@@ -64,3 +64,9 @@ export const pageLabels = {
   '/app/audit': 'Audit log',
   '/app/settings': 'Settings',
 }
+
+export function pageLabel(pathname) {
+  if (pageLabels[pathname]) return pageLabels[pathname]
+  if (/^\/app\/events\/[^/]+$/.test(pathname)) return 'Event details'
+  return 'Workspace'
+}

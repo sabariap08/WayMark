@@ -1,5 +1,5 @@
-import { NavLink } from 'react-router-dom'
-import { ArrowUpRight, Sparkles, X } from 'lucide-react'
+import { Link, NavLink } from 'react-router-dom'
+import { ArrowUpRight, Compass, X } from 'lucide-react'
 import Brand from './Brand'
 import Avatar from './Avatar'
 import { navigation, utilityNavigation } from './navigation'
@@ -53,16 +53,16 @@ export default function Sidebar({ open, onClose }) {
       </nav>
 
       <div className="sidebar-foot">
-        <div className="side-note">
+        <Link className="side-note" to="/app/discover" onClick={onClose}>
           <span className="side-note-icon">
-            <Sparkles size={15} />
+            <Compass size={15} />
           </span>
           <div>
-            <strong>New design system</strong>
-            <p>Core workflows are live. The remaining modules are rolling out next.</p>
+            <strong>Discover events</strong>
+            <p>Browse every event that is open across the workspace.</p>
           </div>
           <ArrowUpRight size={14} className="side-note-arrow" />
-        </div>
+        </Link>
 
         <div className="side-user">
           <Avatar name={user?.name || 'WayMark User'} size="sm" />

@@ -15,7 +15,6 @@ import StatusBadge from '../components/StatusBadge'
 import StatCard from '../components/StatCard'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
-import ModuleAccess from '../components/ModuleAccess'
 import { api, errorMessage } from '../lib/api'
 import { formatDate } from '../lib/format'
 import { useEventScope } from '../lib/useEventScope'
@@ -42,6 +41,7 @@ export default function Participants() {
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
   const [actionError, setActionError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (canManage && !eventId && manageable.length) {
@@ -76,7 +76,7 @@ export default function Participants() {
     return () => {
       alive = false
     }
-  }, [canManage, eventId])
+  }, [canManage, eventId, reloadKey])
 
   const source = canManage ? rows : mine
 
@@ -144,7 +144,7 @@ export default function Participants() {
         {loading ? (
           <div className="skeleton skeleton-panel" />
         ) : error ? (
-          <ErrorState message={error} onRetry={() => setEventId(eventId)} />
+          <ErrorState message={error} onRetry={() => setReloadKey((key) => key + 1)} />
         ) : mine.length ? (
           <section className="panel">
             <div className="panel-head">
@@ -244,7 +244,10 @@ export default function Participants() {
       </section>
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
       )}
@@ -258,7 +261,7 @@ export default function Participants() {
       ) : loading ? (
         <div className="skeleton skeleton-panel" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => setEventId(eventId)} />
+        <ErrorState message={error} onRetry={() => setReloadKey((key) => key + 1)} />
       ) : (
         <>
           <div className="stat-grid">

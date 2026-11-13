@@ -208,8 +208,8 @@ export default function Landing() {
                 <ClipboardCheck size={16} />
               </span>
               <div>
-                <strong>12 checks passed</strong>
-                <small>Schedule is conflict-free</small>
+                <strong>Conflict checks</strong>
+                <small>Schedules stay clean</small>
               </div>
             </div>
             <div className="floating-card floating-card-two">
@@ -217,8 +217,8 @@ export default function Landing() {
                 <Award size={16} />
               </span>
               <div>
-                <strong>Certificates issued</strong>
-                <small>248 recipients verified</small>
+                <strong>Batch certificates</strong>
+                <small>Issue and verify in one place</small>
               </div>
             </div>
           </div>

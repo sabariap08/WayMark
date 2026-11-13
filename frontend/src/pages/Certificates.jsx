@@ -145,6 +145,20 @@ export default function Certificates() {
     }
   }
 
+  async function copyCredential(id) {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard is not available in this browser.')
+      }
+      await navigator.clipboard.writeText(id)
+      setActionError('')
+      setNotice(`Credential ID ${id} copied.`)
+    } catch (err) {
+      setNotice('')
+      setActionError(err?.message || 'Could not copy automatically. Select the ID and copy it manually.')
+    }
+  }
+
   async function verify(event) {
     event.preventDefault()
     if (!credential.trim()) return
@@ -188,7 +202,10 @@ export default function Certificates() {
       />
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
       )}
@@ -286,7 +303,7 @@ export default function Certificates() {
                         <button
                           type="button"
                           className="btn btn-ghost btn-sm"
-                          onClick={() => navigator.clipboard?.writeText(row.credentialId)}
+                          onClick={() => copyCredential(row.credentialId)}
                         >
                           Copy ID
                         </button>
@@ -392,6 +409,8 @@ export default function Certificates() {
               value={credential}
               onChange={(event) => setCredential(event.target.value)}
               placeholder="Enter a credential ID, e.g. WM-XXXX-XXXX"
+              aria-label="Credential ID"
+              autoComplete="off"
             />
           </div>
           <button type="submit" className="btn btn-primary" disabled={busy === 'verify' || !credential.trim()}>
@@ -399,7 +418,11 @@ export default function Certificates() {
           </button>
         </form>
         {verification && (
-          <div className={`verify-result ${verification.valid ? 'is-valid' : 'is-invalid'}`}>
+          <div
+            className={`verify-result ${verification.valid ? 'is-valid' : 'is-invalid'}`}
+            role="status"
+            aria-live="polite"
+          >
             {verification.valid ? <BadgeCheck size={18} /> : <XCircle size={18} />}
             <div>
               <strong>{verification.valid ? 'Valid certificate' : 'Not valid'}</strong>

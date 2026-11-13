@@ -40,6 +40,7 @@ export default function Hosting() {
   const [notice, setNotice] = useState('')
   const [actionError, setActionError] = useState('')
   const [busy, setBusy] = useState('')
+  const [review, setReview] = useState(null)
 
   const reviewer = Boolean(user?.isAdmin)
 
@@ -111,18 +112,15 @@ export default function Hosting() {
     }
   }
 
-  async function decide(row, action) {
-    const reason =
-      action === 'approve'
-        ? ''
-        : window.prompt(
-            action === 'reject'
-              ? 'Reason for rejecting this request (optional):'
-              : 'What changes should the requester make?',
-            '',
-          )
-    if (reason === null) return
+  function decide(row, action) {
+    if (action === 'approve') {
+      performDecision(row, action, '')
+      return
+    }
+    setReview({ row, action, reason: '' })
+  }
 
+  async function performDecision(row, action, reason) {
     setBusy(row.id)
     setActionError('')
     setNotice('')
@@ -137,6 +135,7 @@ export default function Hosting() {
         await api.hosting.requestChanges(row.id, { reason })
         setNotice(`Change request sent for “${row.title}”.`)
       }
+      setReview(null)
       await load()
     } catch (err) {
       setActionError(errorMessage(err))
@@ -207,9 +206,53 @@ export default function Hosting() {
       />
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
+      )}
+
+      {review && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <span className="eyebrow">Review decision</span>
+              <h2>{review.action === 'reject' ? 'Reject request' : 'Request changes'}</h2>
+            </div>
+            <span className="panel-chip">{review.row.title}</span>
+          </div>
+          <div className="module-form">
+            <label className="form-field">
+              <span>
+                {review.action === 'reject'
+                  ? 'Reason (optional)'
+                  : 'What should the requester change?'}
+              </span>
+              <textarea
+                rows={3}
+                value={review.reason}
+                onChange={(event) =>
+                  setReview((current) => ({ ...current, reason: event.target.value }))
+                }
+              />
+            </label>
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => performDecision(review.row, review.action, review.reason)}
+                disabled={busy === review.row.id}
+              >
+                {review.action === 'reject' ? 'Reject request' : 'Send change request'}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setReview(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </section>
       )}
 
       <section className="panel">

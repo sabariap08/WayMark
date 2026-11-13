@@ -43,6 +43,7 @@ export default function Schedule() {
   const [conflicts, setConflicts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (canManage && !eventId && manageable.length) {
@@ -74,7 +75,7 @@ export default function Schedule() {
     return () => {
       alive = false
     }
-  }, [canManage, eventId])
+  }, [canManage, eventId, reloadKey])
 
   const days = useMemo(() => groupByDay(data?.sessions || []), [data])
   const openConflicts = conflicts.filter((row) => row.status === 'Open')
@@ -148,7 +149,7 @@ export default function Schedule() {
       ) : loading ? (
         <div className="skeleton skeleton-panel" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => setEventId(eventId)} />
+        <ErrorState message={error} onRetry={() => setReloadKey((key) => key + 1)} />
       ) : (
         <>
           <div className="stat-grid">

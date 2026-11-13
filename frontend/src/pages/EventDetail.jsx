@@ -260,7 +260,10 @@ export default function EventDetail() {
       </section>
 
       {(actionError || actionNote) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || actionNote}
         </div>
       )}
@@ -524,15 +527,19 @@ export default function EventDetail() {
             <div className="trust-row">
               <ShieldCheck size={17} />
               <span>
-                <strong>Verified host</strong>
-                <small>Managed through WayMark</small>
+                <strong>Event host</strong>
+                <small>Managed in this WayMark workspace</small>
               </span>
             </div>
             <div className="trust-row">
               <ClipboardCheck size={17} />
               <span>
-                <strong>Clear requirements</strong>
-                <small>Everything is listed above</small>
+                <strong>{requirements.length ? 'Clear requirements' : 'Open event'}</strong>
+                <small>
+                  {requirements.length
+                    ? 'Everything is listed above'
+                    : 'Ask the host if anything is unclear'}
+                </small>
               </span>
             </div>
             <div className="trust-row">

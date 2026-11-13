@@ -1,21 +1,59 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Bell, ChevronDown, LogOut, Menu, Search, Settings } from 'lucide-react'
 import Avatar from './Avatar'
-import { pageLabels } from './navigation'
+import { pageLabel } from './navigation'
 import { useAuth } from '../context/AuthContext'
 
-function currentLabel(pathname) {
-  if (pageLabels[pathname]) return pageLabels[pathname]
-  if (/^\/app\/events\/[^/]+$/.test(pathname)) return 'Event details'
-  return 'Workspace'
-}
+const typingTags = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
 
 export default function Topbar({ onMenu }) {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [query, setQuery] = useState('')
+  const searchRef = useRef(null)
+  const headerRef = useRef(null)
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const target = event.target
+      const isTyping =
+        target instanceof HTMLElement &&
+        (target.isContentEditable || typingTags.has(target.tagName))
+
+      if (event.key === '/' && !isTyping && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault()
+        searchRef.current?.focus()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    function closePopoversOutside(event) {
+      const panels = headerRef.current?.querySelectorAll('details.popover[open]') || []
+      panels.forEach((panel) => {
+        if (!panel.contains(event.target)) panel.removeAttribute('open')
+      })
+    }
+
+    function closePopoversOnEscape(event) {
+      if (event.key !== 'Escape') return
+      headerRef.current?.querySelectorAll('details.popover[open]').forEach((panel) => {
+        panel.removeAttribute('open')
+      })
+    }
+
+    document.addEventListener('pointerdown', closePopoversOutside)
+    document.addEventListener('keydown', closePopoversOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closePopoversOutside)
+      document.removeEventListener('keydown', closePopoversOnEscape)
+    }
+  }, [])
 
   function submitSearch(event) {
     event.preventDefault()
@@ -29,7 +67,7 @@ export default function Topbar({ onMenu }) {
   }
 
   return (
-    <header className="topbar">
+    <header className="topbar" ref={headerRef}>
       <div className="topbar-left">
         <button type="button" className="icon-button mobile-menu" onClick={onMenu} aria-label="Open navigation">
           <Menu size={20} />
@@ -37,7 +75,7 @@ export default function Topbar({ onMenu }) {
         <div className="breadcrumb">
           <span>Workspace</span>
           <span className="breadcrumb-sep">/</span>
-          <strong>{currentLabel(pathname)}</strong>
+          <strong>{pageLabel(pathname)}</strong>
         </div>
       </div>
 
@@ -45,18 +83,19 @@ export default function Topbar({ onMenu }) {
         <form className="topbar-search" onSubmit={submitSearch} role="search">
           <Search size={15} />
           <input
+            ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search events"
             aria-label="Search events"
+            aria-keyshortcuts="/"
           />
-          <kbd>/</kbd>
+          <kbd title="Press / to search">/</kbd>
         </form>
 
         <details className="popover">
           <summary className="icon-button notification-button" aria-label="Notifications">
             <Bell size={18} />
-            <span className="notification-dot" />
           </summary>
           <div className="popover-panel notification-panel">
             <div className="popover-head">

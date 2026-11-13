@@ -139,7 +139,10 @@ export default function Reports() {
       </section>
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
       )}

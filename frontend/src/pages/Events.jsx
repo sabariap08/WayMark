@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  ArrowRight,
   ArrowUpRight,
   CalendarDays,
   LayoutGrid,
@@ -59,6 +58,10 @@ export default function Events() {
   useEffect(() => {
     load()
   }, [])
+
+  useEffect(() => {
+    setQuery(searchParams.get('q') || '')
+  }, [searchParams])
 
   const statuses = useMemo(() => {
     const unique = [...new Set(events.map((event) => event.status).filter(Boolean))]

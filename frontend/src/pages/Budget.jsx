@@ -146,6 +146,8 @@ export default function Budget() {
   async function removeLine(line) {
     if (!window.confirm(`Delete “${line.description}”?`)) return
     setBusy(line.id)
+    setActionError('')
+    setNotice('')
     try {
       await api.budget.removeLine(line.id)
       setNotice('Budget line removed.')
@@ -219,7 +221,10 @@ export default function Budget() {
       </section>
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
       )}

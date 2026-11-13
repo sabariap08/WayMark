@@ -128,6 +128,8 @@ export default function Tasks() {
   async function remove(task) {
     if (!window.confirm(`Delete “${task.title}”?`)) return
     setBusy(task.id)
+    setActionError('')
+    setNotice('')
     try {
       await api.tasks.remove(task.id)
       setNotice('Task deleted.')
@@ -194,7 +196,10 @@ export default function Tasks() {
       </section>
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
       )}

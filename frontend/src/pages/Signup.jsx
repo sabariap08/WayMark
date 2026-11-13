@@ -14,6 +14,10 @@ export default function Signup() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    document.title = 'Create account · WayMark'
+  }, [])
+
+  useEffect(() => {
     if (!loading && user) navigate('/app', { replace: true })
   }, [loading, navigate, user])
 
@@ -58,7 +62,11 @@ export default function Signup() {
           <p>Your workspace is ready as soon as you sign in.</p>
         </div>
 
-        {error && <div className="alert alert-error">{error}</div>}
+        {error && (
+          <div className="alert alert-error" role="alert">
+            {error}
+          </div>
+        )}
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">

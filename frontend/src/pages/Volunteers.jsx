@@ -142,6 +142,8 @@ export default function Volunteers() {
   async function remove(row) {
     if (!window.confirm(`Remove ${row.name} from the volunteer team?`)) return
     setBusy(row.id)
+    setActionError('')
+    setNotice('')
     try {
       await api.volunteers.remove(row.id)
       setNotice('Volunteer removed.')
@@ -217,7 +219,10 @@ export default function Volunteers() {
       </section>
 
       {(notice || actionError) && (
-        <div className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}>
+        <div
+          className={`alert ${actionError ? 'alert-error' : 'alert-success'}`}
+          role={actionError ? 'alert' : 'status'}
+        >
           {actionError || notice}
         </div>
       )}

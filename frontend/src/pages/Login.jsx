@@ -18,6 +18,10 @@ export default function Login() {
   const destination = location.state?.from || '/app'
 
   useEffect(() => {
+    document.title = 'Sign in · WayMark'
+  }, [])
+
+  useEffect(() => {
     if (!loading && user) navigate(destination, { replace: true })
   }, [destination, loading, navigate, user])
 
@@ -59,7 +63,11 @@ export default function Login() {
           <p>Pick up where your team left off.</p>
         </div>
 
-        {error && <div className="alert alert-error">{error}</div>}
+        {error && (
+          <div className="alert alert-error" role="alert">
+            {error}
+          </div>
+        )}
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label className="field">

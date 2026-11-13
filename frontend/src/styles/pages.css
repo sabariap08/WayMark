@@ -1,10 +1,7 @@
 /* Landing */
 .landing {
   overflow-x: hidden;
-  background:
-    radial-gradient(75% 45% at 78% 4%, rgba(47, 91, 255, 0.07), transparent 64%),
-    radial-gradient(50% 35% at 4% 22%, rgba(122, 77, 255, 0.05), transparent 70%),
-    #f7f8fc;
+  background: #f7f8fc;
 }
 
 .landing-nav {
@@ -87,10 +84,7 @@
 }
 
 .hero-accent {
-  background: linear-gradient(96deg, #2f5bff 10%, #5c4dff 55%, #7a4dff 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--cobalt);
 }
 
 .hero-lede {
@@ -211,7 +205,7 @@
   margin-bottom: 11px;
   padding: 5px;
   border-radius: 6px;
-  background: linear-gradient(145deg, #5279ff, #2445d5);
+  background: var(--cobalt);
 }
 
 .preview-brand-mark i {
@@ -364,7 +358,7 @@
   flex: 1;
   min-width: 0;
   border-radius: 3px 3px 1px 1px;
-  background: linear-gradient(180deg, rgba(96, 125, 255, 0.8), rgba(55, 83, 204, 0.25));
+  background: rgba(96, 125, 255, 0.6);
 }
 
 .preview-events {
@@ -389,7 +383,7 @@
   height: 21px;
   flex: 0 0 auto;
   border-radius: 6px;
-  background: linear-gradient(145deg, rgba(90, 122, 255, 0.5), rgba(60, 85, 200, 0.2));
+  background: rgba(90, 122, 255, 0.35);
 }
 
 .preview-event > div {
@@ -443,11 +437,10 @@
   align-items: center;
   gap: 9px;
   padding: 10px 13px;
-  border: 1px solid rgba(227, 231, 239, 0.9);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--surface);
   box-shadow: 0 16px 36px rgba(17, 24, 39, 0.12);
-  backdrop-filter: blur(10px);
 }
 
 .floating-card strong {
@@ -592,7 +585,7 @@
   margin-bottom: 35px;
   border: 1px solid #e0e6f8;
   border-radius: 11px;
-  background: linear-gradient(150deg, #f4f7ff, #e9eeff);
+  background: var(--cobalt-soft);
   color: var(--cobalt);
 }
 
@@ -615,7 +608,8 @@
   bottom: 23px;
   width: 32px;
   height: 1px;
-  background: linear-gradient(90deg, var(--cobalt), transparent);
+  background: var(--cobalt);
+  opacity: 0.45;
 }
 
 .workflow-block {
@@ -628,9 +622,7 @@
   padding: 58px;
   border-radius: var(--radius-xl);
   color: #dfe5f4;
-  background:
-    radial-gradient(90% 110% at 100% 0%, rgba(47, 91, 255, 0.2), transparent 58%),
-    linear-gradient(150deg, #0d1527, #0a1120 65%, #080d19);
+  background: #0b1220;
   box-shadow: 0 34px 70px rgba(12, 20, 38, 0.2);
 }
 
@@ -707,9 +699,7 @@
   padding: 48px;
   border-radius: var(--radius-xl);
   color: #dce3f3;
-  background:
-    radial-gradient(100% 110% at 100% 0%, rgba(122, 77, 255, 0.18), transparent 55%),
-    linear-gradient(155deg, #101a30, #0b1424 70%);
+  background: #0e1729;
 }
 
 .security-badge {
@@ -800,7 +790,7 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #6f8bff, #2f5bff);
+  background: #6f8bff;
 }
 
 .cta-block {
@@ -813,9 +803,7 @@
   padding: 46px 50px;
   border-radius: var(--radius-xl);
   color: #fff;
-  background:
-    radial-gradient(80% 130% at 100% 0%, rgba(159, 130, 255, 0.4), transparent 55%),
-    linear-gradient(135deg, #2445d5, #2f5bff 45%, #1d3bc0);
+  background: var(--cobalt);
   box-shadow: 0 30px 60px rgba(47, 91, 255, 0.22);
 }
 
@@ -1287,8 +1275,8 @@
   height: 88px;
   padding: 16px;
   background:
-    radial-gradient(120% 150% at 0% 0%, color-mix(in srgb, var(--event-color, #2f5bff) 24%, white), transparent 72%),
-    linear-gradient(135deg, #f7f9ff, #eef2ff);
+    radial-gradient(120% 150% at 0% 0%, color-mix(in srgb, var(--event-color, #2f5bff) 18%, white), transparent 72%),
+    #f4f7ff;
 }
 
 .event-card-monogram {
@@ -1429,8 +1417,8 @@
   border-radius: var(--radius-xl);
   color: #dfe5f4;
   background:
-    radial-gradient(120% 150% at 92% -20%, color-mix(in srgb, var(--event-color, #2f5bff) 50%, transparent), transparent 55%),
-    linear-gradient(135deg, #0d1629, #111c33 60%, #0a1222);
+    radial-gradient(120% 150% at 92% -20%, color-mix(in srgb, var(--event-color, #2f5bff) 40%, transparent), transparent 55%),
+    #0c1526;
   box-shadow: 0 26px 60px rgba(12, 20, 38, 0.2);
 }
 
@@ -1470,7 +1458,6 @@
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  backdrop-filter: blur(8px);
 }
 
 .event-hero-badges {
@@ -1969,7 +1956,7 @@
   padding: 13px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  background: linear-gradient(145deg, #f8faff, #f2f5fc);
+  background: var(--surface-2);
 }
 
 .venue-icon {
@@ -2050,7 +2037,7 @@
   padding: 54px 44px;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
-  background: linear-gradient(180deg, #fff, #f8faff);
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
   text-align: center;
 }
@@ -2077,7 +2064,7 @@
   margin-bottom: 21px;
   border: 1px solid #dde5fb;
   border-radius: 18px;
-  background: linear-gradient(150deg, #f4f7ff, #e9efff);
+  background: var(--cobalt-soft);
   color: var(--cobalt);
   box-shadow: 0 10px 26px rgba(47, 91, 255, 0.1);
 }
@@ -3110,7 +3097,7 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #2f5bff 0%, #5c4dff 100%);
+  background: var(--cobalt);
 }
 
 .category-bars {
