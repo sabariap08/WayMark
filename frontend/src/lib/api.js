@@ -78,7 +78,46 @@ async function request(path, options = {}) {
 const get = (path, params) => request(path + queryString(params))
 const post = (path, body) => request(path, { method: 'POST', body: body ?? {} })
 const put = (path, body) => request(path, { method: 'PUT', body: body ?? {} })
+const patch = (path, body) => request(path, { method: 'PATCH', body: body ?? {} })
 const del = (path) => request(path, { method: 'DELETE' })
+
+function filenameFromDisposition(header, fallback) {
+  if (!header) return fallback
+  const match = header.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)
+  return match ? decodeURIComponent(match[1].replace(/"/g, '')) : fallback
+}
+
+async function download(path, fallbackName) {
+  const headers = { Accept: '*/*' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const response = await fetch(BASE + path, { headers, credentials: 'same-origin' })
+  if (!response.ok) {
+    let data = null
+    try {
+      data = await response.json()
+    } catch {
+      /* non-json error */
+    }
+    throw new ApiError(
+      (data && data.message) || `Download failed with status ${response.status}`,
+      response.status,
+      data,
+    )
+  }
+
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filenameFromDisposition(response.headers.get('content-disposition'), fallbackName)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+  return link.download
+}
 
 export const api = {
   auth: {
@@ -100,6 +139,8 @@ export const api = {
       }
     },
     me: () => get('/auth/me'),
+    requestPasswordReset: (email) => post('/auth/password-reset', { email }),
+    confirmPasswordReset: (payload) => post('/auth/password-reset/confirm', payload),
   },
   dashboard: {
     overview: () => get('/dashboard'),
@@ -108,15 +149,92 @@ export const api = {
     list: (params) => get('/events', params),
     get: (id) => get(`/events/${encodeURIComponent(id)}`),
     registrations: (id, params) => get(`/events/${encodeURIComponent(id)}/registrations`, params),
+    participants: (id) => get(`/events/${encodeURIComponent(id)}/participants`),
     attendance: (id, params) => get(`/events/${encodeURIComponent(id)}/attendance`, params),
     results: (id, params) => get(`/events/${encodeURIComponent(id)}/results`, params),
+    eligibility: (id) => get(`/events/${encodeURIComponent(id)}/certificates/eligibility`),
+    issueEligible: (id, payload) =>
+      post(`/events/${encodeURIComponent(id)}/certificates/issue-eligible`, payload),
+    generateCertificates: (id, payload) =>
+      post(`/events/${encodeURIComponent(id)}/certificates/generate`, payload),
     create: (payload) => post('/events', payload),
     update: (id, payload) => put(`/events/${encodeURIComponent(id)}`, payload),
   },
+  hosting: {
+    list: (params) => get('/hosting-requests', params),
+    get: (id) => get(`/hosting-requests/${encodeURIComponent(id)}`),
+    create: (payload) => post('/hosting-requests', payload),
+    update: (id, payload) => put(`/hosting-requests/${encodeURIComponent(id)}`, payload),
+    approve: (id, payload) => post(`/hosting-requests/${encodeURIComponent(id)}/approve`, payload),
+    reject: (id, payload) => post(`/hosting-requests/${encodeURIComponent(id)}/reject`, payload),
+    requestChanges: (id, payload) =>
+      post(`/hosting-requests/${encodeURIComponent(id)}/request-changes`, payload),
+    cancel: (id) => post(`/hosting-requests/${encodeURIComponent(id)}/cancel`),
+    resubmit: (id, payload) => post(`/hosting-requests/${encodeURIComponent(id)}/resubmit`, payload),
+  },
   registrations: {
     list: (params) => get('/registrations', params),
+    mine: () => get('/me/registrations'),
     create: (payload) => post('/registrations', payload),
     cancel: (id) => del(`/registrations/${encodeURIComponent(id)}`),
+    checkIn: (payload) => post('/checkin', payload),
+  },
+  certificates: {
+    list: (params) => get('/certificates', params),
+    mine: () => get('/me/certificates'),
+    issue: (payload) => post('/certificates/issue', payload),
+    withdraw: (id, payload) => post(`/certificates/${encodeURIComponent(id)}/withdraw`, payload),
+    verify: (credentialId) => get(`/verify/${encodeURIComponent(credentialId)}`),
+  },
+  schedule: {
+    get: (eventId) => get(`/events/${encodeURIComponent(eventId)}/schedule`),
+    conflicts: (eventId, params) => get(`/events/${encodeURIComponent(eventId)}/conflicts`, params),
+  },
+  volunteers: {
+    list: (params) => get('/volunteers', params),
+    create: (payload) => post('/volunteers', payload),
+    update: (id, payload) => patch(`/volunteers/${encodeURIComponent(id)}`, payload),
+    invite: (id) => post(`/volunteers/${encodeURIComponent(id)}/invite`),
+    remove: (id) => del(`/volunteers/${encodeURIComponent(id)}`),
+  },
+  tasks: {
+    list: (eventId, params) => get(`/events/${encodeURIComponent(eventId)}/tasks`, params),
+    create: (eventId, payload) => post(`/events/${encodeURIComponent(eventId)}/tasks`, payload),
+    update: (id, payload) => put(`/tasks/${encodeURIComponent(id)}`, payload),
+    assign: (id, payload) => post(`/tasks/${encodeURIComponent(id)}/assign`, payload),
+    remove: (id) => del(`/tasks/${encodeURIComponent(id)}`),
+  },
+  budget: {
+    summary: (eventId) => get(`/events/${encodeURIComponent(eventId)}/budget/summary`),
+    categories: (eventId) => get(`/events/${encodeURIComponent(eventId)}/budget/categories`),
+    lines: (eventId, params) => get(`/events/${encodeURIComponent(eventId)}/budget/lines`, params),
+    createCategory: (eventId, payload) =>
+      post(`/events/${encodeURIComponent(eventId)}/budget/categories`, payload),
+    createLine: (eventId, payload) =>
+      post(`/events/${encodeURIComponent(eventId)}/budget/lines`, payload),
+    updateLine: (id, payload) => patch(`/budget/lines/${encodeURIComponent(id)}`, payload),
+    removeLine: (id) => del(`/budget/lines/${encodeURIComponent(id)}`),
+    sponsors: (eventId) => get(`/events/${encodeURIComponent(eventId)}/sponsors`),
+  },
+  analytics: {
+    event: (eventId) => get(`/analytics/events/${encodeURIComponent(eventId)}`),
+    compare: (eventIdA, eventIdB) => get('/analytics/compare', { eventIdA, eventIdB }),
+  },
+  reports: {
+    download: (eventId, kind, format = 'csv') =>
+      download(
+        `/events/${encodeURIComponent(eventId)}/reports/${encodeURIComponent(kind)}?format=${format}`,
+        `${kind}.${format}`,
+      ),
+  },
+  audit: {
+    list: (params) => get('/audit-logs', params),
+  },
+  admin: {
+    users: (params) => get('/admin/users', params),
+    audit: (params) => get('/admin/audit', params),
+    settings: () => get('/admin/settings'),
+    updateSettings: (payload) => patch('/admin/settings', payload),
   },
   meta: {
     get: () => get('/meta'),
